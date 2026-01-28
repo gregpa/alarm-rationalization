@@ -1302,6 +1302,347 @@ class AlarmTransformer:
         
         return result, self.stats
 
+    def generate_change_report(self, pha_content: str, source_data: Dict) -> bytes:
+        """
+        Generate an Excel change report comparing original DynAMo values with PHA-Pro changes.
+        
+        Args:
+            pha_content: The PHA-Pro export file content
+            source_data: Dictionary with 'rows' containing original DynAMo _Parameter rows
+            
+        Returns:
+            Excel file as bytes
+        """
+        import pandas as pd
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
+        # Parse PHA-Pro file to get changes
+        lines = pha_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        reader = csv.reader(lines)
+        rows_list = list(reader)
+        
+        if not rows_list:
+            raise ValueError("PHA-Pro file is empty")
+        
+        header = rows_list[0]
+        col_map = {col.strip(): i for i, col in enumerate(header)}
+        
+        # Build PHA changes lookup
+        pha_changes = {}
+        last_tag_name = ""
+        last_tag_source = ""
+        
+        for row in rows_list[1:]:
+            if not row or not any(row):
+                continue
+            
+            tag_name_idx = col_map.get('Tag Name', 1)
+            tag_name = row[tag_name_idx].strip() if tag_name_idx < len(row) else ""
+            if tag_name:
+                last_tag_name = tag_name
+                tag_source_idx = col_map.get('Tag Source', 5)
+                if tag_source_idx < len(row) and row[tag_source_idx].strip():
+                    last_tag_source = row[tag_source_idx].strip()
+            else:
+                tag_name = last_tag_name
+            
+            alarm_type_idx = col_map.get('Alarm Type', 7)
+            alarm_type = row[alarm_type_idx].strip() if alarm_type_idx < len(row) else ""
+            
+            if not alarm_type:
+                continue
+            
+            def get_col(name, default=""):
+                idx = col_map.get(name)
+                if idx is not None and idx < len(row):
+                    return row[idx].strip() or default
+                return default
+            
+            pha_changes[(tag_name, alarm_type)] = {
+                'new_limit': get_col('New Limit', ''),
+                'new_priority': get_col('New Priority', ''),
+                'max_severity': get_col('Max Severity', ''),
+                'ttr': get_col('TTR Range', ''),
+                'causes': get_col('Cause(s)', ''),
+                'consequences': get_col('Consequence(s)', ''),
+                'inside_actions': get_col('Inside Action(s)', ''),
+                'outside_actions': get_col('Outside Action(s)', ''),
+                'new_enable_status': get_col('New Individual Alarm Enable Status', ''),
+                'tag_source': last_tag_source,
+                'unit': get_col('Unit', ''),
+            }
+        
+        # Build change records by comparing original with PHA changes
+        change_records = []
+        seen_keys = set()
+        
+        # Column indices in DynAMo file
+        # H=7 (value), K=10 (priorityValue), M=12 (consequence), N=13 (TTR)
+        # Q=16 (Purpose), R=17 (Consequence), S=18 (Board Op), T=19 (Field Op)
+        # Z=25 (DisabledValue)
+        
+        for original_row in source_data.get('rows', []):
+            if len(original_row) < 6:
+                continue
+            
+            if original_row[0] not in ["_Variable", "'_Variable"] or original_row[2] != "_Parameter":
+                continue
+            
+            tag_name = original_row[1]
+            mode = original_row[3] if len(original_row) > 3 else ""
+            alarm_type = original_row[5]
+            
+            # Only process NORMAL mode
+            if mode.upper() != "NORMAL":
+                continue
+            
+            key = (tag_name, alarm_type)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            
+            if key not in pha_changes:
+                continue
+            
+            changes = pha_changes[key]
+            
+            # Get original values
+            orig_value = original_row[7].strip() if len(original_row) > 7 else ""
+            orig_priority = original_row[10].strip() if len(original_row) > 10 else ""
+            orig_consequence = original_row[12].strip() if len(original_row) > 12 else ""
+            orig_ttr = original_row[13].strip() if len(original_row) > 13 else ""
+            orig_purpose = original_row[16].strip() if len(original_row) > 16 else ""
+            orig_conseq_action = original_row[17].strip() if len(original_row) > 17 else ""
+            orig_board_op = original_row[18].strip() if len(original_row) > 18 else ""
+            orig_field_op = original_row[19].strip() if len(original_row) > 19 else ""
+            orig_disabled = original_row[25].strip() if len(original_row) > 25 else ""
+            
+            # Calculate new values (same logic as transform_reverse)
+            new_limit = changes['new_limit']
+            at_lower = alarm_type.lower()
+            
+            if new_limit in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
+                new_limit = '~'
+            
+            if self.is_discrete(alarm_type):
+                new_value = "~"
+            elif "significant change" in at_lower:
+                new_value = "--------"
+            elif new_limit and new_limit not in ["~", "", "-9999999"]:
+                new_value = new_limit.replace(',', '')
+                try:
+                    num = float(new_value)
+                    if num == int(num):
+                        new_value = str(int(num))
+                    else:
+                        new_value = f"{num:g}"
+                except ValueError:
+                    new_value = new_limit
+            else:
+                new_value = "--------"
+            
+            # Priority mapping
+            new_priority_raw = changes['new_priority']
+            if new_priority_raw in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
+                new_priority = '~'
+            else:
+                priority_map = {
+                    'U': 'Urgent', 'URGENT': 'Urgent', 'C': 'Critical', 'CRITICAL': 'Critical',
+                    'H': 'High', 'HIGH': 'High', 'M': 'Medium', 'MEDIUM': 'Medium',
+                    'L': 'Low', 'LOW': 'Low', 'J': 'Journal', 'JOURNAL': 'Journal',
+                    'JO': 'Journal', 'N': 'None', 'NONE': 'None',
+                }
+                new_priority = priority_map.get(new_priority_raw.upper(), new_priority_raw) if new_priority_raw else ''
+            
+            # Consequence/severity
+            max_severity = changes['max_severity']
+            if max_severity in ['A', 'B', 'C', 'D', 'E']:
+                new_consequence = max_severity
+            elif max_severity and max_severity.upper() in ['NONE', '(NONE)', '(N)', 'N']:
+                new_consequence = '(None)'
+            else:
+                new_consequence = max_severity or orig_consequence
+            
+            new_ttr = changes['ttr'] if changes['ttr'] and changes['ttr'] != '~' else orig_ttr
+            new_purpose = changes['causes'] if changes['causes'] else orig_purpose
+            new_conseq_action = changes['consequences'] if changes['consequences'] else orig_conseq_action
+            new_board_op = changes['inside_actions'] if changes['inside_actions'] else orig_board_op
+            new_field_op = changes['outside_actions'] if changes['outside_actions'] else orig_field_op
+            
+            # Disabled value
+            new_enable_status = changes['new_enable_status']
+            if new_enable_status:
+                enable_upper = new_enable_status.upper()
+                if enable_upper in ['TRUE', 'ENABLED', '1']:
+                    new_disabled = 'TRUE'
+                elif enable_upper in ['FALSE', 'DISABLED', '0']:
+                    new_disabled = 'FALSE'
+                else:
+                    new_disabled = orig_disabled
+            else:
+                new_disabled = orig_disabled
+            
+            # Check if any field changed
+            value_changed = orig_value != new_value
+            priority_changed = orig_priority != new_priority
+            consequence_changed = orig_consequence != new_consequence
+            ttr_changed = orig_ttr != new_ttr
+            purpose_changed = orig_purpose != new_purpose
+            conseq_action_changed = orig_conseq_action != new_conseq_action
+            board_op_changed = orig_board_op != new_board_op
+            field_op_changed = orig_field_op != new_field_op
+            disabled_changed = orig_disabled != new_disabled
+            
+            any_change = (value_changed or priority_changed or consequence_changed or 
+                         ttr_changed or purpose_changed or conseq_action_changed or 
+                         board_op_changed or field_op_changed or disabled_changed)
+            
+            if any_change:
+                change_records.append({
+                    'Unit': changes.get('unit', ''),
+                    'Tag Name': tag_name,
+                    'Alarm Type': alarm_type,
+                    'Tag Source': changes.get('tag_source', ''),
+                    # Value/Limit
+                    'Original Limit': orig_value,
+                    'New Limit': new_value,
+                    'Limit Changed': '✓' if value_changed else '',
+                    # Priority
+                    'Original Priority': orig_priority,
+                    'New Priority': new_priority,
+                    'Priority Changed': '✓' if priority_changed else '',
+                    # Consequence/Severity
+                    'Original Severity': orig_consequence,
+                    'New Severity': new_consequence,
+                    'Severity Changed': '✓' if consequence_changed else '',
+                    # TTR
+                    'Original TTR': orig_ttr,
+                    'New TTR': new_ttr,
+                    'TTR Changed': '✓' if ttr_changed else '',
+                    # Purpose/Cause
+                    'Original Purpose': orig_purpose[:100] + '...' if len(orig_purpose) > 100 else orig_purpose,
+                    'New Purpose': new_purpose[:100] + '...' if len(new_purpose) > 100 else new_purpose,
+                    'Purpose Changed': '✓' if purpose_changed else '',
+                    # Consequence of No Action
+                    'Original Consequence': orig_conseq_action[:100] + '...' if len(orig_conseq_action) > 100 else orig_conseq_action,
+                    'New Consequence': new_conseq_action[:100] + '...' if len(new_conseq_action) > 100 else new_conseq_action,
+                    'Consequence Changed': '✓' if conseq_action_changed else '',
+                    # Board Operator
+                    'Original Board Op': orig_board_op[:100] + '...' if len(orig_board_op) > 100 else orig_board_op,
+                    'New Board Op': new_board_op[:100] + '...' if len(new_board_op) > 100 else new_board_op,
+                    'Board Op Changed': '✓' if board_op_changed else '',
+                    # Field Operator
+                    'Original Field Op': orig_field_op[:100] + '...' if len(orig_field_op) > 100 else orig_field_op,
+                    'New Field Op': new_field_op[:100] + '...' if len(new_field_op) > 100 else new_field_op,
+                    'Field Op Changed': '✓' if field_op_changed else '',
+                    # Enabled/Disabled
+                    'Original Enabled': orig_disabled,
+                    'New Enabled': new_disabled,
+                    'Enabled Changed': '✓' if disabled_changed else '',
+                })
+        
+        # Create DataFrame
+        df = pd.DataFrame(change_records)
+        
+        # Create Excel workbook with formatting
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Change Report"
+        
+        # Define styles
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True, size=10)
+        change_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")  # Light yellow
+        checkmark_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Light green
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Write header
+        if len(df) > 0:
+            headers = list(df.columns)
+            for col_idx, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_idx, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                cell.border = thin_border
+            
+            # Write data rows
+            for row_idx, record in enumerate(df.to_dict('records'), 2):
+                for col_idx, header in enumerate(headers, 1):
+                    value = record.get(header, '')
+                    cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                    cell.border = thin_border
+                    cell.alignment = Alignment(vertical='center', wrap_text=True)
+                    
+                    # Highlight "Changed" columns with checkmarks
+                    if 'Changed' in header and value == '✓':
+                        cell.fill = checkmark_fill
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Highlight "New" columns that have changes
+                    if header.startswith('New ') and not header.endswith('Changed'):
+                        # Check if corresponding Changed column has checkmark
+                        base_name = header.replace('New ', '')
+                        changed_col = f"{base_name} Changed"
+                        if changed_col in record and record[changed_col] == '✓':
+                            cell.fill = change_fill
+            
+            # Adjust column widths
+            column_widths = {
+                'Unit': 12, 'Tag Name': 20, 'Alarm Type': 20, 'Tag Source': 25,
+                'Original Limit': 12, 'New Limit': 12, 'Limit Changed': 8,
+                'Original Priority': 12, 'New Priority': 12, 'Priority Changed': 8,
+                'Original Severity': 12, 'New Severity': 12, 'Severity Changed': 8,
+                'Original TTR': 18, 'New TTR': 18, 'TTR Changed': 8,
+                'Original Purpose': 35, 'New Purpose': 35, 'Purpose Changed': 8,
+                'Original Consequence': 35, 'New Consequence': 35, 'Consequence Changed': 8,
+                'Original Board Op': 35, 'New Board Op': 35, 'Board Op Changed': 8,
+                'Original Field Op': 35, 'New Field Op': 35, 'Field Op Changed': 8,
+                'Original Enabled': 12, 'New Enabled': 12, 'Enabled Changed': 8,
+            }
+            
+            for col_idx, header in enumerate(headers, 1):
+                width = column_widths.get(header, 15)
+                ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
+            
+            # Freeze header row
+            ws.freeze_panes = 'A2'
+        else:
+            ws.cell(row=1, column=1, value="No changes detected")
+        
+        # Add summary sheet
+        ws_summary = wb.create_sheet("Summary")
+        ws_summary.cell(row=1, column=1, value="Change Report Summary").font = Font(bold=True, size=14)
+        ws_summary.cell(row=3, column=1, value="Total Alarms with Changes:")
+        ws_summary.cell(row=3, column=2, value=len(df))
+        
+        # Count changes by type
+        if len(df) > 0:
+            ws_summary.cell(row=5, column=1, value="Changes by Field:").font = Font(bold=True)
+            change_cols = [col for col in df.columns if col.endswith('Changed')]
+            row = 6
+            for col in change_cols:
+                count = (df[col] == '✓').sum()
+                if count > 0:
+                    field_name = col.replace(' Changed', '')
+                    ws_summary.cell(row=row, column=1, value=field_name)
+                    ws_summary.cell(row=row, column=2, value=count)
+                    row += 1
+        
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        return output.getvalue()
+
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -1964,13 +2305,33 @@ The output file contains exactly one row per (tag, alarm type) combination, matc
                     
                     # Download button
                     st.markdown("### 📥 Download")
-                    st.download_button(
-                        label=f"⬇️ Download {output_filename}",
-                        data=output_csv,
-                        file_name=output_filename,
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+                    
+                    col_dl1, col_dl2 = st.columns(2)
+                    
+                    with col_dl1:
+                        st.download_button(
+                            label=f"⬇️ Download {output_filename}",
+                            data=output_csv,
+                            file_name=output_filename,
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    
+                    # Change Report button (only for DynAMo reverse transform)
+                    with col_dl2:
+                        if parser_type != "abb" and source_data:
+                            try:
+                                change_report = transformer.generate_change_report(file_content, source_data)
+                                report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
+                                st.download_button(
+                                    label="📊 Download Change Report",
+                                    data=change_report,
+                                    file_name=report_filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True
+                                )
+                            except Exception as report_error:
+                                st.warning(f"Could not generate change report: {report_error}")
                     
                     # Preview
                     with st.expander("👁️ Preview Output (first 20 rows)"):
