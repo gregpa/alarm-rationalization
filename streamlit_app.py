@@ -2120,15 +2120,19 @@ Thanks,
             )
         
         if transform_clicked:
-            with st.spinner("Processing..."):
-                try:
-                    # Get parser type
-                    parser_type = client_config.get("parser", "dynamo")
-                    
-                    # Create transformer
-                    transformer = AlarmTransformer(selected_client)
-                    
-                    if direction == "forward":
+            try:
+                # Get parser type
+                parser_type = client_config.get("parser", "dynamo")
+                
+                # Create transformer
+                transformer = AlarmTransformer(selected_client)
+                
+                # Initialize variables for change report
+                file_content = None
+                source_data = None
+                
+                if direction == "forward":
+                    with st.spinner("🔄 Transforming to PHA-Pro format..."):
                         if parser_type == "abb":
                             # ABB uses Excel, read as bytes
                             raw_bytes = uploaded_file.read()
@@ -2160,9 +2164,10 @@ Thanks,
                             # Transform
                             output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
                             output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
-                        
-                    else:
-                        # Reverse transformation - always CSV input
+                    
+                else:
+                    # Reverse transformation - always CSV input
+                    with st.spinner("🔄 Loading and parsing files..."):
                         raw_bytes = uploaded_file.read()
                         file_content = None
                         for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
@@ -2204,71 +2209,72 @@ Thanks,
                                             source_rows.append(row)
                                     
                                     source_data = {'rows': source_rows}
-                                    st.info(f"📂 Loaded {len(source_rows):,} alarm rows from original {dcs_name} file")
                             
                             if not source_data:
                                 st.error(f"❌ Original {dcs_name} export file is required for reverse transformation.")
                                 st.stop()
-                            
-                            # Transform (merge PHA-Pro changes with original data)
-                            output_csv, stats = transformer.transform_reverse(file_content, source_data)
-                            output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
                     
-                    # Show success
-                    st.markdown("""
-                    <div class="status-success">
-                        <strong>✅ Transformation Complete!</strong>
+                    # Now do the actual transformation with its own spinner
+                    with st.spinner(f"🔄 Transforming {len(source_data['rows']):,} alarm rows..."):
+                        # Transform (merge PHA-Pro changes with original data)
+                        output_csv, stats = transformer.transform_reverse(file_content, source_data)
+                        output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
+                
+                # Show success (only after spinner completes)
+                st.markdown("""
+                <div class="status-success">
+                    <strong>✅ Transformation Complete!</strong>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Stats
+                st.markdown("### 📊 Results")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class="stat-box">
+                        <div class="stat-number">{stats['tags']:,}</div>
+                        <div class="stat-label">Tags Processed</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # Stats
-                    st.markdown("### 📊 Results")
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
+                
+                with col2:
+                    st.markdown(f"""
+                    <div class="stat-box">
+                        <div class="stat-number">{stats['alarms']:,}</div>
+                        <div class="stat-label">Alarms Processed</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    # For reverse transform, show updated count; for forward, show units
+                    if 'updated' in stats:
                         st.markdown(f"""
                         <div class="stat-box">
-                            <div class="stat-number">{stats['tags']:,}</div>
-                            <div class="stat-label">Tags Processed</div>
+                            <div class="stat-number">{stats['updated']:,}</div>
+                            <div class="stat-label">Alarms Updated</div>
                         </div>
                         """, unsafe_allow_html=True)
-                    
-                    with col2:
+                    else:
+                        units_str = len(stats.get('units', set())) if isinstance(stats.get('units'), set) else "N/A"
                         st.markdown(f"""
                         <div class="stat-box">
-                            <div class="stat-number">{stats['alarms']:,}</div>
-                            <div class="stat-label">Alarms Processed</div>
+                            <div class="stat-number">{units_str}</div>
+                            <div class="stat-label">Units Found</div>
                         </div>
                         """, unsafe_allow_html=True)
+                
+                # Show not_found warning if any
+                if stats.get('not_found', 0) > 0:
+                    st.warning(f"⚠️ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
+                
+                # Show skipped modes info with expandable explanation
+                if stats.get('skipped_modes', 0) > 0:
+                    st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
                     
-                    with col3:
-                        # For reverse transform, show updated count; for forward, show units
-                        if 'updated' in stats:
-                            st.markdown(f"""
-                            <div class="stat-box">
-                                <div class="stat-number">{stats['updated']:,}</div>
-                                <div class="stat-label">Alarms Updated</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            units_str = len(stats.get('units', set())) if isinstance(stats.get('units'), set) else "N/A"
-                            st.markdown(f"""
-                            <div class="stat-box">
-                                <div class="stat-number">{units_str}</div>
-                                <div class="stat-label">Units Found</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    # Show not_found warning if any
-                    if stats.get('not_found', 0) > 0:
-                        st.warning(f"⚠️ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
-                    
-                    # Show skipped modes info with expandable explanation
-                    if stats.get('skipped_modes', 0) > 0:
-                        st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
-                        
-                        with st.expander("🔍 Click here to understand why rows were skipped"):
-                            st.markdown("""
+                    with st.expander("🔍 Click here to understand why rows were skipped"):
+                        st.markdown("""
 ### What are "Modes" in DynAMo?
 
 DynAMo uses **modes** to manage alarm configurations across different plant operating states. Each alarm can have different settings depending on which mode the plant is operating in:
@@ -2301,48 +2307,48 @@ DynAMo uses **modes** to manage alarm configurations across different plant oper
 - ⏭️ **{:,} rows with other modes** were skipped (they exist in your source file but are not part of the active alarm configuration)
 
 The output file contains exactly one row per (tag, alarm type) combination, matching what DynAMo expects for a clean import.
-                            """.format(stats['alarms'], stats['skipped_modes']))
-                    
-                    # Download button
-                    st.markdown("### 📥 Download")
-                    
-                    col_dl1, col_dl2 = st.columns(2)
-                    
-                    with col_dl1:
-                        st.download_button(
-                            label=f"⬇️ Download {output_filename}",
-                            data=output_csv,
-                            file_name=output_filename,
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    
-                    # Change Report button (only for DynAMo reverse transform)
-                    with col_dl2:
-                        if parser_type != "abb" and source_data:
-                            try:
-                                change_report = transformer.generate_change_report(file_content, source_data)
-                                report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
-                                st.download_button(
-                                    label="📊 Download Change Report",
-                                    data=change_report,
-                                    file_name=report_filename,
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True
-                                )
-                            except Exception as report_error:
-                                st.warning(f"Could not generate change report: {report_error}")
-                    
-                    # Preview
-                    with st.expander("👁️ Preview Output (first 20 rows)"):
-                        # Handle both bytes and string output
-                        if isinstance(output_csv, bytes):
-                            preview_df = pd.read_csv(io.BytesIO(output_csv), nrows=20, encoding='latin-1')
-                        else:
-                            preview_df = pd.read_csv(io.StringIO(output_csv), nrows=20)
-                        st.dataframe(preview_df, use_container_width=True)
-                    
-                except Exception as e:
+                        """.format(stats['alarms'], stats['skipped_modes']))
+                
+                # Download button
+                st.markdown("### 📥 Download")
+                
+                col_dl1, col_dl2 = st.columns(2)
+                
+                with col_dl1:
+                    st.download_button(
+                        label=f"⬇️ Download {output_filename}",
+                        data=output_csv,
+                        file_name=output_filename,
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                
+                # Change Report button (only for DynAMo reverse transform)
+                with col_dl2:
+                    if parser_type != "abb" and source_data:
+                        try:
+                            change_report = transformer.generate_change_report(file_content, source_data)
+                            report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
+                            st.download_button(
+                                label="📊 Download Change Report",
+                                data=change_report,
+                                file_name=report_filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        except Exception as report_error:
+                            st.warning(f"Could not generate change report: {report_error}")
+                
+                # Preview
+                with st.expander("👁️ Preview Output (first 20 rows)"):
+                    # Handle both bytes and string output
+                    if isinstance(output_csv, bytes):
+                        preview_df = pd.read_csv(io.BytesIO(output_csv), nrows=20, encoding='latin-1')
+                    else:
+                        preview_df = pd.read_csv(io.StringIO(output_csv), nrows=20)
+                    st.dataframe(preview_df, use_container_width=True)
+                
+            except Exception as e:
                     error_msg = str(e)
                     
                     # Check if this is a missing columns error
