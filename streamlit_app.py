@@ -18,6 +18,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# =============================================================================
+# ADMIN PASSWORD PROTECTION (Optional)
+# Set ADMIN_PASSWORD in Streamlit Cloud Secrets to enable edit protection
+# Users can still use the app, but can't access Streamlit Cloud edit features
+# =============================================================================
+# To enable: Go to Streamlit Cloud > App Settings > Secrets
+# Add: ADMIN_PASSWORD = "your_secure_password"
+# =============================================================================
+
 # Custom CSS for professional styling
 st.markdown("""
 <style>
@@ -1158,15 +1167,7 @@ def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set]:
 # ============================================================
 
 def main():
-    # Header
-    st.markdown("""
-    <div class="main-header">
-        <h1>🔔 Alarm Rationalization Platform</h1>
-        <p>Transform alarm data between DynAMo and PHA-Pro formats</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sidebar
+    # Sidebar first to get client selection
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
         
@@ -1219,10 +1220,48 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 2.0  
+        **Version:** 3.1  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
+        
+        with st.expander("📝 Version History"):
+            st.markdown("""
+            **v3.1** - Jan 2026
+            - Dynamic header and descriptions
+            - Fixed Output Format column counts
+            
+            **v3.0** - Jan 2026
+            - Added ABB 800xA support
+            - Rio Tinto - Bessemer City client
+            - Excel (.xlsx) input for ABB
+            
+            **v2.2** - Jan 2026  
+            - Missing column validation
+            - HF Sinclair - Artesia client
+            - Dynamic radio button labels
+            
+            **v2.1** - Jan 2026
+            - Unit detection on file upload
+            - Tag Prefix / Asset Path / Both options
+            
+            **v2.0** - Jan 2026
+            - Severity mapping fix (MINOR→D, etc.)
+            - OnDelay, OffDelay, Deadband extraction
+            - Freeport LNG client
+            
+            **v1.0** - Jan 2026
+            - Initial release
+            - DynAMo ↔ PHA-Pro transformation
+            """)
+    
+    # Header - dynamic based on client (now after sidebar so we have dcs_name and pha_tool)
+    st.markdown(f"""
+    <div class="main-header">
+        <h1>🔔 Alarm Rationalization Platform</h1>
+        <p>Transform alarm management databases between {dcs_name} and {pha_tool}</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Main content
     col1, col2 = st.columns([2, 1])
@@ -1359,20 +1398,38 @@ def main():
     with col2:
         st.markdown("### 📋 Output Format")
         
+        parser_type = client_config.get("parser", "dynamo")
+        
         if direction == "forward":
-            st.markdown(f"""
-            **{pha_tool} 45-Column Import**
-            - Hierarchical format
-            - Unit/Tag/Alarm structure
-            - Ready for MADB import
-            """)
+            if parser_type == "abb":
+                st.markdown(f"""
+                **{pha_tool} 23-Column Import**
+                - Hierarchical format
+                - Unit/Tag/Alarm structure
+                - Ready for MADB import
+                """)
+            else:
+                st.markdown(f"""
+                **{pha_tool} 45-Column Import**
+                - Hierarchical format
+                - Unit/Tag/Alarm structure
+                - Ready for MADB import
+                """)
         else:
-            st.markdown(f"""
-            **{dcs_name} _Parameter 42-Column**
-            - Flat format
-            - Direct {dcs_name} import
-            - Mode preservation supported
-            """)
+            if parser_type == "abb":
+                st.markdown(f"""
+                **{dcs_name} 8-Column Return**
+                - Flat format
+                - Direct {dcs_name} import
+                - Consolidated notes
+                """)
+            else:
+                st.markdown(f"""
+                **{dcs_name} _Parameter 42-Column**
+                - Flat format
+                - Direct {dcs_name} import
+                - Mode preservation supported
+                """)
     
     st.markdown("---")
     
