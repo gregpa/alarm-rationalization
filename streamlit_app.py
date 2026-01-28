@@ -1279,19 +1279,19 @@ class AlarmTransformer:
             rows.append(output_row)
         
         # Convert to CSV - DynAMo import format has NO header row
-        # Use latin-1 encoding to match the manual file format
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerows(rows)
         
-        # Get the string and encode/decode to ensure latin-1 compatible output
-        # This converts any UTF-8 artifacts (like Â followed by non-breaking space) 
-        # to proper latin-1 single-byte characters
-        result = output.getvalue()
-        
-        # Fix any remaining UTF-8 artifacts: 0xC2 0xA0 -> 0xA0 (non-breaking space)
-        # In the string, this appears as chr(0xc2) + chr(0xa0) -> chr(0xa0)
-        result = result.replace('\xc2\xa0', '\xa0')
+        # Get the string result and encode as latin-1 bytes
+        # This ensures non-breaking space (U+00A0) is encoded as single byte 0xa0
+        # instead of UTF-8's two bytes 0xc2 0xa0, matching the manual file format
+        result_str = output.getvalue()
+        try:
+            result = result_str.encode('latin-1')
+        except UnicodeEncodeError:
+            # If there are characters that can't be encoded as latin-1, use UTF-8
+            result = result_str.encode('utf-8')
         
         return result, self.stats
 
