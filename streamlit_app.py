@@ -1092,9 +1092,16 @@ class AlarmTransformer:
             }
             priority_value = priority_map.get(new_priority.upper(), new_priority)
             
-            # Value
+            # Handle {n/a} priority - convert to ~
+            if priority_value in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
+                priority_value = '~'
+            
+            # Value - special handling for different alarm types
+            # "High significant change" and "Low significant change" should have "--------"
             if self.is_discrete(alarm_type):
                 value = "~"
+            elif "significant change" in at_lower:
+                value = "--------"
             elif new_limit and new_limit not in ["~", "", "-9999999"]:
                 value = new_limit
             else:
@@ -1150,7 +1157,7 @@ class AlarmTransformer:
             
             # Build row
             output_row = [
-                "_Variable",
+                "'_Variable",
                 tag_name,
                 "_Parameter",
                 source_modes.get((tag_name, alarm_type), "Base") if source_modes else "Base",
@@ -1188,10 +1195,11 @@ class AlarmTransformer:
             
             rows.append(output_row)
         
-        # Convert to CSV
+        # Convert to CSV - DynAMo import format has NO header row
+        # Each row starts with '_Variable (apostrophe comments it for DynAMo)
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(self.DYNAMO_HEADERS)
+        # Do NOT write header row - DynAMo import expects data rows only
         writer.writerows(rows)
         
         return output.getvalue(), self.stats
