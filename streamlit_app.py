@@ -1113,6 +1113,22 @@ class AlarmTransformer:
             while len(output_row) < 42:
                 output_row.append("")
             
+            # Clean commas from numeric fields (OnDelay, OffDelay, DeadBand values)
+            # These are columns: AF (31), AI (34), AL (37)
+            numeric_cols = [31, 34, 37]
+            for col_idx in numeric_cols:
+                if col_idx < len(output_row) and output_row[col_idx]:
+                    val = output_row[col_idx]
+                    # Remove commas from numbers like "1,500" -> "1500"
+                    if ',' in val:
+                        try:
+                            # Check if it's a number with commas
+                            cleaned = val.replace(',', '')
+                            float(cleaned)  # Verify it's numeric
+                            output_row[col_idx] = cleaned
+                        except ValueError:
+                            pass  # Not a number, keep as-is
+            
             # Add apostrophe to _Variable for import
             output_row[0] = "'_Variable"
             
@@ -1218,29 +1234,29 @@ class AlarmTransformer:
                 # Always update from PHA-Pro (even if ~)
                 causes = changes['causes']
                 if causes:
-                    # Clean up any encoding issues
-                    causes = causes.replace('\xa0', ' ').replace('Â', '')
+                    # Clean up encoding issues but preserve non-breaking spaces (manual file has them)
+                    causes = causes.replace('Â', '')
                     output_row[16] = causes
                 
                 # --- UPDATE COLUMN R (index 17): Consequence of No Action ---
                 # Always update from PHA-Pro (even if ~)
                 consequences = changes['consequences']
                 if consequences:
-                    consequences = consequences.replace('\xa0', ' ').replace('Â', '')
+                    consequences = consequences.replace('Â', '')
                     output_row[17] = consequences
                 
                 # --- UPDATE COLUMN S (index 18): Board Operator (Inside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 inside_actions = changes['inside_actions']
                 if inside_actions:
-                    inside_actions = inside_actions.replace('\xa0', ' ').replace('Â', '')
+                    inside_actions = inside_actions.replace('Â', '')
                     output_row[18] = inside_actions
                 
                 # --- UPDATE COLUMN T (index 19): Field Operator (Outside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 outside_actions = changes['outside_actions']
                 if outside_actions:
-                    outside_actions = outside_actions.replace('\xa0', ' ').replace('Â', '')
+                    outside_actions = outside_actions.replace('Â', '')
                     output_row[19] = outside_actions
                 
                 # --- UPDATE COLUMN Z (index 25): DisabledValue ---
