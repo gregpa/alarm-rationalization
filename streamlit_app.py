@@ -1331,10 +1331,11 @@ def main():
                 if uploaded_file is not None and selected_client == "flng":
                     st.session_state.unit_method_choice = unit_method_choice
             else:
-                # ABB uses fixed unit from config
-                unit_value = client_config.get('unit_value', 'Line 1')
-                st.markdown(f"### 📊 Unit: **{unit_value}**")
-                st.markdown("---")
+                # ABB uses fixed unit from config - only show after file uploaded
+                if uploaded_file is not None:
+                    unit_value = client_config.get('unit_value', 'Line 1')
+                    st.markdown(f"### 📊 Unit: **{unit_value}**")
+                    st.markdown("---")
             
             source_file = None
             
