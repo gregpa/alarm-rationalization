@@ -1256,15 +1256,17 @@ def main():
     
     # Sidebar first to get client selection
     with st.sidebar:
-        # Logout button at top of sidebar
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"👤 **{st.session_state.get('username', 'User')}**")
-        with col2:
-            if st.button("Logout", key="logout_btn"):
-                st.session_state["authenticated"] = False
-                st.session_state["username"] = None
-                st.rerun()
+        # Logout button at top of sidebar - small and subtle
+        st.markdown(
+            f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">'
+            f'<span style="font-size: 0.9rem;">👤 {st.session_state.get("username", "User")}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        if st.button("Logout", key="logout_btn", type="secondary"):
+            st.session_state["authenticated"] = False
+            st.session_state["username"] = None
+            st.rerun()
         
         st.markdown("---")
         st.markdown("### ⚙️ Configuration")
@@ -1505,16 +1507,16 @@ def main():
             parser_type = client_config.get("parser", "dynamo")
             if parser_type == "dynamo":
                 st.markdown("---")
-                st.markdown(f"**⚠️ Required: Original {dcs_name} export for Mode preservation**")
-                st.caption("The 'Mode' column values vary by client and must be preserved from the original export.")
+                st.markdown(f"**⚠️ Required: Original {dcs_name} export file**")
+                st.caption("Client-specific values must be preserved from the original export.")
                 source_file = st.file_uploader(
                     f"Original {dcs_name} Export (REQUIRED)",
                     type=['csv'],
-                    help=f"Upload the original {dcs_name} export to preserve Mode values (column 4). This ensures the correct mode is retained for each tag/alarm combination."
+                    help=f"Upload the original {dcs_name} export to preserve client-specific configuration values."
                 )
                 
                 if uploaded_file is not None and source_file is None:
-                    st.warning(f"⚠️ Please upload the original {dcs_name} export file to preserve Mode values. Without it, all modes will default to 'Base'.")
+                    st.warning(f"⚠️ Please upload the original {dcs_name} export file. Without it, default values will be used.")
             else:
                 source_file = None
             
