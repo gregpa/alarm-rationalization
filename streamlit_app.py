@@ -349,7 +349,13 @@ class AlarmTransformer:
     
     DISCRETE_ALARM_TYPES = [
         "controlfail", "st0", "st1", "st2", "st3", "unreasonable", "bad pv",
-        "off normal", "command disagree", "command fail", "cnferr", "chofst", "offnrm"
+        "off normal", "command disagree", "command fail", "cnferr", "chofst", "offnrm",
+        # Additional discrete patterns found in FLNG project
+        "bad control", "override interlock", "safety interlock", "safety override",
+        "uncommanded", "c1 -", "c2 -", "c3 -", "c4 -", "c5 -", "c6 -", 
+        "c7 -", "c8 -", "c9 -", "c10 -", "c11 -", "c12 -",
+        "flagoffnorm", "devbadpv", "devcmddis", "devuncevt", "devcmdfail",
+        "daqpvhi", "daqpvhihi", "daqpvlow", "daqpvlolo", "daqrocneg", "daqrocpos", "regbadctl"
     ]
     
     def __init__(self, client_id: str):
@@ -1151,7 +1157,9 @@ class AlarmTransformer:
                     new_limit = '~'
                 
                 # Determine value based on alarm type
-                # For discrete alarms and alarms with no limit, keep original value or use ~
+                # For discrete alarms: use ~
+                # For analog alarms with no valid limit: use --------
+                # For analog alarms with valid limit: use the limit value
                 if self.is_discrete(alarm_type):
                     # Discrete alarms: keep ~ (not --------)
                     value = "~"
@@ -1173,11 +1181,10 @@ class AlarmTransformer:
                     except ValueError:
                         # Not a number, keep as-is
                         value = new_limit
-                elif new_limit == "~" or new_limit == "":
-                    # Explicit ~ or empty - keep as ~
-                    value = "~"
                 else:
-                    # -9999999 or other invalid - use --------
+                    # No valid limit (empty, ~, or -9999999) - use --------
+                    # This covers Advisory Deviation, Deviation Low, Accumulator deviation, etc.
+                    value = "--------"
                     value = "--------"
                 
                 output_row[7] = value  # Column H: value
@@ -1967,7 +1974,11 @@ The output file contains exactly one row per (tag, alarm type) combination, matc
                     
                     # Preview
                     with st.expander("👁️ Preview Output (first 20 rows)"):
-                        preview_df = pd.read_csv(io.StringIO(output_csv), nrows=20)
+                        # Handle both bytes and string output
+                        if isinstance(output_csv, bytes):
+                            preview_df = pd.read_csv(io.BytesIO(output_csv), nrows=20, encoding='latin-1')
+                        else:
+                            preview_df = pd.read_csv(io.StringIO(output_csv), nrows=20)
                         st.dataframe(preview_df, use_container_width=True)
                     
                 except Exception as e:
