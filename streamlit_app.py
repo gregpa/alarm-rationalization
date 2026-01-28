@@ -1371,6 +1371,95 @@ def main():
             - Initial release
             - DynAMo ↔ PHA-Pro transformation
             """)
+        
+        # Bug/Feature Report Button
+        st.markdown("---")
+        st.markdown("### 🐛 Report Issue")
+        
+        report_type = st.selectbox(
+            "What would you like to report?",
+            ["Bug / Something broken", "Feature request", "Question / Other"],
+            key="report_type"
+        )
+        
+        # Build email subject and body based on report type
+        subject_map = {
+            "Bug / Something broken": "Bug Report - Alarm Rationalization Platform",
+            "Feature request": "Feature Request - Alarm Rationalization Platform",
+            "Question / Other": "Question - Alarm Rationalization Platform"
+        }
+        
+        body_map = {
+            "Bug / Something broken": f"""Hi Greg,
+
+I found an issue with the Alarm Rationalization Platform.
+
+CLIENT: {client_options.get(selected_client, 'Unknown')}
+DIRECTION: {direction}
+VERSION: 3.3
+
+DESCRIPTION OF ISSUE:
+[Describe what happened]
+
+STEPS TO REPRODUCE:
+1. 
+2. 
+3. 
+
+EXPECTED BEHAVIOR:
+[What should have happened]
+
+ACTUAL BEHAVIOR:
+[What actually happened]
+
+Please attach any relevant files or screenshots.
+
+Thanks,
+{st.session_state.get('username', '[Your name]')}""",
+            
+            "Feature request": f"""Hi Greg,
+
+I have a feature suggestion for the Alarm Rationalization Platform.
+
+CLIENT: {client_options.get(selected_client, 'Unknown')}
+VERSION: 3.3
+
+FEATURE DESCRIPTION:
+[Describe the feature you'd like]
+
+WHY IT WOULD BE HELPFUL:
+[Explain the use case]
+
+Thanks,
+{st.session_state.get('username', '[Your name]')}""",
+            
+            "Question / Other": f"""Hi Greg,
+
+I have a question about the Alarm Rationalization Platform.
+
+CLIENT: {client_options.get(selected_client, 'Unknown')}
+VERSION: 3.3
+
+QUESTION:
+[Your question here]
+
+Thanks,
+{st.session_state.get('username', '[Your name]')}"""
+        }
+        
+        import urllib.parse
+        subject = urllib.parse.quote(subject_map[report_type])
+        body = urllib.parse.quote(body_map[report_type])
+        email_link = f"mailto:greg.pajak@aesolutions.com?subject={subject}&body={body}"
+        
+        st.markdown(
+            f'<a href="{email_link}" target="_blank">'
+            f'<button style="width:100%; padding:10px; background-color:#4a6fa5; color:white; border:none; border-radius:5px; cursor:pointer;">'
+            f'📧 Open Email to Report'
+            f'</button></a>',
+            unsafe_allow_html=True
+        )
+        st.caption("Attach files/screenshots in your email client")
     
     # Header - dynamic based on client (now after sidebar so we have dcs_name and pha_tool)
     st.markdown(f"""
