@@ -1775,8 +1775,15 @@ def main():
                 3. **Upload the original {dcs_name} export** (required for Mode preservation)
                 4. Click Transform
                 5. Download the {dcs_name} _Parameter import file
+                6. **Optional:** Download the Change Report (Excel) to review all modifications
                 
                 *Note: The original {dcs_name} file is required to preserve the correct Mode values for each tag/alarm combination.*
+                
+                **Change Report Features:**
+                - Shows all fields that changed (Original vs New values)
+                - Highlights modified cells in yellow
+                - Includes summary sheet with change counts by field
+                - Formatted Excel file ready for review or documentation
                 """)
             else:
                 st.markdown(f"""
@@ -1796,13 +1803,28 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 3.1  
+        **Version:** 3.17  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
         
         with st.expander("📝 Version History"):
             st.markdown("""
+            **v3.17** - Jan 2026
+            - Fixed UI timing (spinner completes before success message)
+            - Change Report Excel export with formatting
+            - 100% validation match with manual process
+            
+            **v3.15** - Jan 2026
+            - Latin-1 encoding for DynAMo compatibility
+            - Expanded discrete alarm type detection
+            - Fixed value logic for deviation alarms
+            
+            **v3.8** - Jan 2026
+            - Mode filtering (NORMAL only)
+            - Decimal formatting (strip trailing zeros)
+            - Skipped modes explanation UI
+            
             **v3.1** - Jan 2026
             - Dynamic header and descriptions
             - Fixed Output Format column counts
@@ -1855,7 +1877,7 @@ I found an issue with the Alarm Rationalization Platform.
 
 CLIENT: {client_options.get(selected_client, 'Unknown')}
 DIRECTION: {direction}
-VERSION: 3.3
+VERSION: 3.17
 
 DESCRIPTION OF ISSUE:
 [Describe what happened]
