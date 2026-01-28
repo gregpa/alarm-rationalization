@@ -1854,12 +1854,25 @@ Thanks,
         st.markdown("""
         **Your data is secure.**
         
+        **Access Control:**
+        - ✅ **Authentication required** - No anonymous access to the tool
+        - ✅ **Login protected** - Client names and functionality hidden until authenticated
+        
+        **Data Handling:**
         - ✅ **No data storage** - Files exist only in memory during your session
         - ✅ **No database** - Nothing is saved to any server
         - ✅ **No logging** - File contents are never logged
         - ✅ **Session isolation** - Your session is separate from other users
-        - ✅ **HTTPS encrypted** - All traffic is encrypted in transit
-        - ✅ **Stateless processing** - Data goes in, transforms, goes out, then is cleared
+        - ✅ **Memory cleared** - All data erased when you log out or close the tab
+        
+        **In Transit:**
+        - ✅ **HTTPS encrypted** - All traffic is encrypted
+        
+        **What is NOT exposed to the internet:**
+        - ❌ Uploaded alarm data
+        - ❌ Tag names or setpoints
+        - ❌ Any client operational data
+        - ❌ Client names (hidden behind login)
         
         Your alarm data, tag names, setpoints, and all operational information remain private and are never stored or exposed.
         
