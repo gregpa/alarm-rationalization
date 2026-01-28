@@ -1234,29 +1234,30 @@ class AlarmTransformer:
                 # Always update from PHA-Pro (even if ~)
                 causes = changes['causes']
                 if causes:
-                    # Clean up encoding issues but preserve non-breaking spaces (manual file has them)
-                    causes = causes.replace('Â', '')
+                    # Fix UTF-8 encoding artifact: Â followed by non-breaking space -> just non-breaking space
+                    # This happens when UTF-8 (0xC2 0xA0) is read as latin-1
+                    causes = causes.replace('Â\xa0', '\xa0').replace('Â ', ' ')
                     output_row[16] = causes
                 
                 # --- UPDATE COLUMN R (index 17): Consequence of No Action ---
                 # Always update from PHA-Pro (even if ~)
                 consequences = changes['consequences']
                 if consequences:
-                    consequences = consequences.replace('Â', '')
+                    consequences = consequences.replace('Â\xa0', '\xa0').replace('Â ', ' ')
                     output_row[17] = consequences
                 
                 # --- UPDATE COLUMN S (index 18): Board Operator (Inside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 inside_actions = changes['inside_actions']
                 if inside_actions:
-                    inside_actions = inside_actions.replace('Â', '')
+                    inside_actions = inside_actions.replace('Â\xa0', '\xa0').replace('Â ', ' ')
                     output_row[18] = inside_actions
                 
                 # --- UPDATE COLUMN T (index 19): Field Operator (Outside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 outside_actions = changes['outside_actions']
                 if outside_actions:
-                    outside_actions = outside_actions.replace('Â', '')
+                    outside_actions = outside_actions.replace('Â\xa0', '\xa0').replace('Â ', ' ')
                     output_row[19] = outside_actions
                 
                 # --- UPDATE COLUMN Z (index 25): DisabledValue ---
