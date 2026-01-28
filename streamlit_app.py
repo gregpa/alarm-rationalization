@@ -640,16 +640,17 @@ class AlarmTransformer:
     def validate_phapro_columns(self, col_map: Dict[str, int]) -> List[str]:
         """
         Validate that all required PHA-Pro columns are present.
+        Column names must match exactly.
         
         Returns:
             List of missing column names (empty if all present)
         """
-        # Required columns for reverse transformation
+        # Required columns for reverse transformation (exact names required)
         required_columns = {
             'Tag Name': 'Tag identifier - needed to map back to DynAMo',
             'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
             'Alarm Type': 'Required to identify which alarm parameter to update',
-            'New (BPCS) Priority': 'Maps to DynAMo priorityValue',
+            'New Priority': 'Maps to DynAMo priorityValue',
             'New Limit': 'Maps to DynAMo value field for analog alarms',
             'Alarm Status': 'Determines consequence and disabled state',
             'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
@@ -657,10 +658,11 @@ class AlarmTransformer:
             'Inside Action(s)': 'Maps to DynAMo Board Operator',
             'Outside Action(s)': 'Maps to DynAMo Field Operator',
             'Max Severity': 'Maps to DynAMo consequence field',
-            'Allowable Time to Respond': 'Maps to DynAMo TimeToRespond',
+            'TTR Range': 'Maps to DynAMo TimeToRespond',
+            'New Individual Alarm Enable Status': 'Maps to DynAMo DisabledValue (TRUE/FALSE)',
         }
         
-        # Check for missing columns
+        # Check for missing columns (exact match required)
         missing = []
         for col_name in required_columns.keys():
             if col_name not in col_map:
@@ -674,7 +676,7 @@ class AlarmTransformer:
             'Tag Name': 'Tag identifier - needed to map back to DynAMo',
             'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
             'Alarm Type': 'Required to identify which alarm parameter to update',
-            'New (BPCS) Priority': 'Maps to DynAMo priorityValue',
+            'New Priority': 'Maps to DynAMo priorityValue',
             'New Limit': 'Maps to DynAMo value field for analog alarms',
             'Alarm Status': 'Determines consequence and disabled state',
             'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
@@ -682,7 +684,8 @@ class AlarmTransformer:
             'Inside Action(s)': 'Maps to DynAMo Board Operator',
             'Outside Action(s)': 'Maps to DynAMo Field Operator',
             'Max Severity': 'Maps to DynAMo consequence field',
-            'Allowable Time to Respond': 'Maps to DynAMo TimeToRespond',
+            'TTR Range': 'Maps to DynAMo TimeToRespond',
+            'New Individual Alarm Enable Status': 'Maps to DynAMo DisabledValue (TRUE/FALSE)',
         }
     
     def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None) -> Tuple[str, Dict]:
@@ -1040,7 +1043,7 @@ class AlarmTransformer:
             if not alarm_type:
                 continue
             
-            # Helper to get column value
+            # Helper to get column value (exact name match)
             def get_col(name, default=""):
                 idx = col_map.get(name)
                 if idx is not None and idx < len(row):
@@ -1048,11 +1051,12 @@ class AlarmTransformer:
                 return default
             
             # Store PHA-Pro values for this tag/alarm combination
+            # Using standardized column names
             pha_changes[(tag_name, alarm_type)] = {
                 'new_limit': get_col('New Limit', ''),
-                'new_priority': get_col('New (BPCS) Priority', ''),
+                'new_priority': get_col('New Priority', ''),
                 'max_severity': get_col('Max Severity', ''),
-                'ttr': get_col('Allowable Time to Respond', '~'),
+                'ttr': get_col('TTR Range', '~'),
                 'causes': get_col('Cause(s)', '~'),
                 'consequences': get_col('Consequence(s)', '~'),
                 'inside_actions': get_col('Inside Action(s)', '~'),
@@ -1863,7 +1867,7 @@ Thanks,
                         """, unsafe_allow_html=True)
                         
                         st.markdown("### 📋 Missing Columns")
-                        st.markdown("Please add the following columns to your PHA-Pro export file:")
+                        st.markdown("Please rename or add the following columns in your PHA-Pro export file:")
                         
                         # Get column descriptions
                         col_info = transformer.get_required_columns_info()
@@ -1880,10 +1884,12 @@ Thanks,
                         st.markdown("**How to fix:**")
                         st.markdown("""
                         1. Open your PHA-Pro export in Excel
-                        2. Add the missing column(s) with the exact names shown above
-                        3. The columns can be empty if you don't have the data - they just need to exist
+                        2. Rename column headers to match the **exact names** shown above
+                        3. Column names are case-sensitive and must match exactly
                         4. Save and re-upload the file
                         """)
+                        
+                        st.info("💡 **Note:** Column names must match exactly, including capitalization and special characters like parentheses.")
                     else:
                         st.error(f"Error during transformation: {error_msg}")
                         st.exception(e)
