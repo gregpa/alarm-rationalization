@@ -1143,8 +1143,20 @@ class AlarmTransformer:
                     # Significant change alarms: use --------
                     value = "--------"
                 elif new_limit and new_limit not in ["~", "", "-9999999"]:
-                    # Has a valid limit value - use it as-is (preserve decimal formatting)
-                    value = new_limit
+                    # Has a valid limit value
+                    # Strip trailing zeros from decimal numbers (0.500 -> 0.5)
+                    value = new_limit.replace(',', '')  # Remove commas first
+                    try:
+                        # Try to parse as float and format without trailing zeros
+                        num = float(value)
+                        if num == int(num):
+                            value = str(int(num))  # Whole number
+                        else:
+                            # Format float, strip trailing zeros
+                            value = f"{num:g}"
+                    except ValueError:
+                        # Not a number, keep as-is
+                        value = new_limit
                 elif new_limit == "~" or new_limit == "":
                     # Explicit ~ or empty - keep as ~
                     value = "~"
@@ -1191,8 +1203,8 @@ class AlarmTransformer:
                 max_severity = changes['max_severity']
                 if max_severity in ['A', 'B', 'C', 'D', 'E']:
                     output_row[12] = max_severity
-                elif max_severity and max_severity.upper() == 'NONE':
-                    output_row[12] = '(None)'  # Use (None) not (N)
+                elif max_severity and max_severity.upper() in ['NONE', '(NONE)', '(N)', 'N']:
+                    output_row[12] = '(None)'  # Standardize to (None)
                 elif max_severity:
                     output_row[12] = max_severity
                 # else keep original
@@ -1203,23 +1215,32 @@ class AlarmTransformer:
                     output_row[13] = ttr
                 
                 # --- UPDATE COLUMN Q (index 16): Purpose of Alarm (Cause) ---
+                # Always update from PHA-Pro (even if ~)
                 causes = changes['causes']
-                if causes and causes != '~':
+                if causes:
+                    # Clean up any encoding issues
+                    causes = causes.replace('\xa0', ' ').replace('Â', '')
                     output_row[16] = causes
                 
                 # --- UPDATE COLUMN R (index 17): Consequence of No Action ---
+                # Always update from PHA-Pro (even if ~)
                 consequences = changes['consequences']
-                if consequences and consequences != '~':
+                if consequences:
+                    consequences = consequences.replace('\xa0', ' ').replace('Â', '')
                     output_row[17] = consequences
                 
                 # --- UPDATE COLUMN S (index 18): Board Operator (Inside Action) ---
+                # Always update from PHA-Pro (even if ~)
                 inside_actions = changes['inside_actions']
-                if inside_actions and inside_actions != '~':
+                if inside_actions:
+                    inside_actions = inside_actions.replace('\xa0', ' ').replace('Â', '')
                     output_row[18] = inside_actions
                 
                 # --- UPDATE COLUMN T (index 19): Field Operator (Outside Action) ---
+                # Always update from PHA-Pro (even if ~)
                 outside_actions = changes['outside_actions']
-                if outside_actions and outside_actions != '~':
+                if outside_actions:
+                    outside_actions = outside_actions.replace('\xa0', ' ').replace('Â', '')
                     output_row[19] = outside_actions
                 
                 # --- UPDATE COLUMN Z (index 25): DisabledValue ---
