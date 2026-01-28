@@ -261,9 +261,20 @@ class AlarmTransformer:
         
         return schemas
     
-    def extract_unit(self, tag_name: str, asset_path: str = "") -> str:
-        """Extract unit number from tag name or asset path."""
-        if self.config["unit_method"] == "TAG_PREFIX":
+    def extract_unit(self, tag_name: str, asset_path: str = "", method: str = None) -> str:
+        """Extract unit number from tag name or asset path.
+        
+        Args:
+            tag_name: The tag name
+            asset_path: The asset path (optional)
+            method: Override method - "tag_prefix" or "asset_path" (optional)
+        """
+        import re
+        
+        # Determine which method to use
+        use_method = method or self.config.get("unit_method", "TAG_PREFIX")
+        
+        if use_method.upper() == "TAG_PREFIX":
             unit = ""
             for ch in tag_name:
                 if ch.isdigit():
@@ -273,6 +284,17 @@ class AlarmTransformer:
                 elif unit:
                     break
             return unit
+        
+        elif use_method.upper() == "ASSET_PATH" and asset_path:
+            # Look for /Uxx/ pattern
+            match = re.search(r'/U(\d+)/', asset_path, re.IGNORECASE)
+            if match:
+                return match.group(1)
+            # Try /Unitxx/ pattern
+            match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        
         return ""
     
     def derive_tag_source(self, tag_name: str, point_type: str) -> Tuple[str, str]:
@@ -327,8 +349,14 @@ class AlarmTransformer:
         at_lower = alarm_type.lower()
         return any(d in at_lower for d in self.DISCRETE_ALARM_TYPES)
     
-    def transform_forward(self, file_content: str, selected_units: List[str] = None) -> Tuple[str, Dict]:
-        """Transform DynAMo to PHA-Pro format."""
+    def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None) -> Tuple[str, Dict]:
+        """Transform DynAMo to PHA-Pro format.
+        
+        Args:
+            file_content: The CSV file content
+            selected_units: List of units to filter (optional)
+            unit_method: "tag_prefix" or "asset_path" (optional, uses config default)
+        """
         schemas = self.parse_dynamo_csv(file_content)
         
         rows = []
@@ -346,7 +374,7 @@ class AlarmTransformer:
                 continue
             
             point_type = dcs_data.get('pointType', '') or var_data.get('pointType', '')
-            unit = self.extract_unit(tag_name, var_data.get('assetPath', ''))
+            unit = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
             
             if selected_units and unit not in selected_units:
                 continue
@@ -666,6 +694,66 @@ class AlarmTransformer:
 
 
 # ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set]:
+    """
+    Scan a DynAMo file and extract available units using both methods.
+    
+    Returns:
+        Tuple of (units_by_tag_prefix, units_by_asset_path)
+    """
+    import re
+    
+    lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    reader = csv.reader(lines)
+    
+    units_by_prefix = set()
+    units_by_asset = set()
+    
+    # Get config for unit extraction
+    config = AlarmTransformer.CLIENT_CONFIGS.get(client_id, AlarmTransformer.CLIENT_CONFIGS["flng"])
+    unit_digits = config.get("unit_digits", 2)
+    
+    for row in reader:
+        if not row or len(row) < 4:
+            continue
+        
+        if row[0].strip() == "_Variable" and len(row) > 2:
+            tag_name = row[1].strip()
+            schema_type = row[2].strip()
+            
+            if schema_type == "_DCSVariable":
+                # Extract unit from tag prefix
+                unit = ""
+                for ch in tag_name:
+                    if ch.isdigit():
+                        unit += ch
+                        if len(unit) >= unit_digits:
+                            break
+                    elif unit:
+                        break
+                if unit:
+                    units_by_prefix.add(unit)
+                
+                # Extract unit from asset path
+                asset_path = row[3] if len(row) > 3 else ""
+                if asset_path:
+                    # Look for /Uxx/ or /Unitxx/ pattern
+                    match = re.search(r'/U(\d+)/', asset_path, re.IGNORECASE)
+                    if match:
+                        units_by_asset.add(match.group(1))
+                    else:
+                        # Try other patterns like /Unit67/
+                        match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
+                        if match:
+                            units_by_asset.add(match.group(1))
+    
+    return units_by_prefix, units_by_asset
+
+
+# ============================================================
 # STREAMLIT UI
 # ============================================================
 
@@ -744,12 +832,79 @@ def main():
                 help="The CSV file exported from DynAMo containing _DCSVariable, _DCS, _Parameter schemas"
             )
             
-            # Unit filter
+            # Unit detection and selection
+            unit_filter = ""
+            unit_method_choice = "tag_prefix"  # default
+            
+            if uploaded_file is not None:
+                # Scan file for available units
+                raw_bytes = uploaded_file.read()
+                uploaded_file.seek(0)  # Reset for later use
+                
+                file_content = None
+                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        file_content = raw_bytes.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if file_content:
+                    # Extract units using both methods
+                    units_by_prefix, units_by_asset = scan_for_units(file_content, selected_client)
+                    
+                    # Show unit detection results
+                    st.markdown("### 📊 Units Detected")
+                    
+                    # For FLNG, show both methods and let user choose
+                    if selected_client == "flng":
+                        col_a, col_b = st.columns(2)
+                        
+                        with col_a:
+                            st.markdown("**By Tag Prefix:**")
+                            if units_by_prefix:
+                                st.code(", ".join(sorted(units_by_prefix, key=lambda x: (len(x), x))))
+                            else:
+                                st.write("None found")
+                        
+                        with col_b:
+                            st.markdown("**By Asset Path:**")
+                            if units_by_asset:
+                                st.code(", ".join(sorted(units_by_asset, key=lambda x: (len(x), x))))
+                            else:
+                                st.write("None found")
+                        
+                        # Let user choose method if they differ
+                        if units_by_prefix != units_by_asset:
+                            unit_method_choice = st.radio(
+                                "Which unit extraction method should be used?",
+                                options=["tag_prefix", "asset_path"],
+                                format_func=lambda x: "Tag Prefix (first digits of tag name)" if x == "tag_prefix" else "Asset Path (from /Uxx/ in path)",
+                                help="Tag Prefix: Uses first 2 digits of tag name (e.g., 67FIC0101 → Unit 67)\nAsset Path: Uses unit from asset hierarchy (e.g., /Assets/U67/ → Unit 67)",
+                                horizontal=True
+                            )
+                        
+                        # Show the units for selected method
+                        available_units = units_by_prefix if unit_method_choice == "tag_prefix" else units_by_asset
+                    else:
+                        # For other clients, just show detected units
+                        available_units = units_by_prefix
+                        st.markdown(f"**Available Units:** {', '.join(sorted(available_units, key=lambda x: (len(x), x))) if available_units else 'None detected'}")
+                    
+                    st.markdown("---")
+            
+            # Unit filter input
             unit_filter = st.text_input(
                 "Filter by Unit(s)",
                 placeholder="e.g., 67 or 67,68,70 (leave blank for all)",
                 help="Enter unit numbers separated by commas to filter. Leave blank to process all units."
             )
+            
+            # Store the method choice in session state for use during transform
+            if 'unit_method_choice' not in st.session_state:
+                st.session_state.unit_method_choice = "tag_prefix"
+            if uploaded_file is not None and selected_client == "flng":
+                st.session_state.unit_method_choice = unit_method_choice
             
             source_file = None
             
@@ -827,8 +982,11 @@ def main():
                         if unit_filter and unit_filter.strip():
                             selected_units = [u.strip() for u in unit_filter.split(',')]
                         
+                        # Get unit method from session state (for FLNG)
+                        unit_method = st.session_state.get('unit_method_choice', 'tag_prefix')
+                        
                         # Transform
-                        output_csv, stats = transformer.transform_forward(file_content, selected_units)
+                        output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
                         output_filename = f"{selected_client.upper()}_PHA-Pro_Import.csv"
                         
                     else:
