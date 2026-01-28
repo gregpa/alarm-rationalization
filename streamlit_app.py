@@ -169,11 +169,30 @@ class AlarmTransformer:
         "DeadBandEnforcement", "DeadBandUnitParameter", "DeadBandUnitValue", "DeadBandUnitEnforcement"
     ]
     
+    # ABB PHA-Pro 23-column headers (different from DynAMo's 45-column)
+    ABB_PHAPRO_HEADERS = [
+        "Unit", "Starting Tag Name", "New Tag Name", "Old Tag Description", "New Tag Description",
+        "Tag Source", "Rationalization (Tag) Comment", "Range Min", "Range Max", "Engineering Units",
+        "Starting Alarm Type", "New Alarm Type", "Old Alarm Enable Status", "New Alarm Enable Status",
+        "Old Alarm Severity", "New Alarm Severity", "Old Limit", "New Limit",
+        "Old (BPCS) Priority", "New (BPCS) Priority", "Rationalization Status", "Alarm Status",
+        "Rationalization (Alarm) Comment"
+    ]
+    
+    # ABB Return format (8 columns)
+    ABB_RETURN_HEADERS = [
+        "Tag Name", "New Tag Description", "New Alarm Type", "New Alarm Enable Status",
+        "New Limit", "New Priority", "New Alarm Severity Level", "ABB Consolidated Notes"
+    ]
+    
     # Client configurations
     CLIENT_CONFIGS = {
         "flng": {
             "name": "Freeport LNG",
             "vendor": "Honeywell Experion/DynAMo",
+            "dcs_name": "DynAMo",  # For UI labels
+            "pha_tool": "PHA-Pro",  # For UI labels
+            "parser": "dynamo",  # Which parser to use
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
             "tag_source_rules": [
@@ -183,9 +202,12 @@ class AlarmTransformer:
             ],
             "default_source": "Honeywell TDC (DCS)",
         },
-        "hf_sinclair": {
-            "name": "HF Sinclair",
+        "hfs_artesia": {
+            "name": "HF Sinclair - Artesia",
             "vendor": "Honeywell Experion/DynAMo",
+            "dcs_name": "DynAMo",
+            "pha_tool": "PHA-Pro",
+            "parser": "dynamo",
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
             "tag_source_rules": [
@@ -193,7 +215,33 @@ class AlarmTransformer:
             ],
             "default_source": "Honeywell Experion (DCS)",
         },
+        "rt_bessemer": {
+            "name": "Rio Tinto - Bessemer City",
+            "vendor": "ABB",
+            "dcs_name": "ABB",
+            "pha_tool": "PHA-Pro",
+            "parser": "abb",  # Use ABB parser
+            "unit_method": "FIXED",
+            "unit_value": "Line 1",  # Fixed unit for this site
+            "tag_source_rules": [],
+            "default_source": "ABB 800xA (DCS)",
+            # ABB-specific alarm type mappings
+            "abb_alarm_types": {
+                "H": "(PV) High",
+                "HH": "(PV) High High", 
+                "HHH": "(PV) High High High",
+                "L": "(PV) Low",
+                "LL": "(PV) Low Low",
+                "LLL": "(PV) Low Low Low",
+                "OE": "Object Error",
+            },
+            # ABB priority mapping (ABB uses numeric, PHA-Pro uses numeric too for ABB)
+            "abb_priority_default": 3,
+        },
     }
+    
+    # ABB-specific column mappings
+    ABB_ALARM_SUFFIXES = ['H', 'HH', 'HHH', 'L', 'LL', 'LLL', 'OE']
     
     DISCRETE_ALARM_TYPES = [
         "controlfail", "st0", "st1", "st2", "st3", "unreasonable", "bad pv",
@@ -204,6 +252,98 @@ class AlarmTransformer:
         self.client_id = client_id
         self.config = self.CLIENT_CONFIGS.get(client_id, self.CLIENT_CONFIGS["flng"])
         self.stats = {"tags": 0, "alarms": 0, "units": set()}
+    
+    def parse_abb_excel(self, file_bytes: bytes) -> List[Dict]:
+        """Parse ABB 800xA Excel export (wide format with alarm columns)."""
+        import pandas as pd
+        
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        
+        tags = []
+        
+        # Column name mappings (handle variations)
+        name_col = None
+        desc_col = None
+        for col in df.columns:
+            col_upper = col.upper()
+            if col_upper == 'NAME' or col_upper == 'OBJECT NAME':
+                name_col = col
+            if col_upper == 'DESCRIPTION':
+                desc_col = col
+        
+        if not name_col:
+            name_col = df.columns[3] if len(df.columns) > 3 else df.columns[0]
+        if not desc_col:
+            desc_col = df.columns[4] if len(df.columns) > 4 else None
+        
+        for _, row in df.iterrows():
+            tag_name = str(row.get(name_col, '')).strip()
+            if not tag_name or tag_name == 'nan':
+                continue
+            
+            tag_data = {
+                'tag_name': tag_name,
+                'description': str(row.get(desc_col, '')).strip() if desc_col else '',
+                'alarms': []
+            }
+            
+            # Extract alarm data for each type (H, HH, HHH, L, LL, LLL, OE)
+            alarm_types = self.config.get('abb_alarm_types', {
+                'H': '(PV) High', 'HH': '(PV) High High', 'HHH': '(PV) High High High',
+                'L': '(PV) Low', 'LL': '(PV) Low Low', 'LLL': '(PV) Low Low Low',
+                'OE': 'Object Error'
+            })
+            
+            for suffix, alarm_name in alarm_types.items():
+                # Find columns for this alarm type
+                conf_col = None
+                level_col = None
+                sev_col = None
+                
+                for col in df.columns:
+                    col_upper = col.upper()
+                    if f'AECONF{suffix}' in col_upper or f'AECONF{suffix.upper()}' == col_upper:
+                        conf_col = col
+                    if f'AELEVEL{suffix}' in col_upper or f'AELEVEL{suffix.upper()}' == col_upper:
+                        level_col = col
+                    if f'AESEV{suffix}' in col_upper or f'AESEV{suffix.upper()}' == col_upper:
+                        sev_col = col
+                
+                # Get values
+                enabled = 0
+                level = -9999999
+                severity = 1
+                
+                if conf_col:
+                    try:
+                        enabled = int(row.get(conf_col, 0))
+                    except:
+                        enabled = 0
+                
+                if level_col:
+                    try:
+                        level = float(row.get(level_col, -9999999))
+                    except:
+                        level = -9999999
+                
+                if sev_col:
+                    try:
+                        severity = int(row.get(sev_col, 1))
+                    except:
+                        severity = 1
+                
+                tag_data['alarms'].append({
+                    'type': alarm_name,
+                    'suffix': suffix,
+                    'enabled': enabled,
+                    'level': level,
+                    'severity': severity,
+                    'priority': self.config.get('abb_priority_default', 3),
+                })
+            
+            tags.append(tag_data)
+        
+        return tags
     
     def parse_dynamo_csv(self, file_content: str) -> Dict:
         """Parse DynAMo multi-schema CSV file."""
@@ -253,6 +393,10 @@ class AlarmTransformer:
                         'FieldOperator': row[19] if len(row) > 19 else "",
                         'SupportingNotes': row[20] if len(row) > 20 else "",
                         'DisabledValue': row[25] if len(row) > 25 else "",
+                        'OnDelayValue': row[31] if len(row) > 31 else "",
+                        'OffDelayValue': row[34] if len(row) > 34 else "",
+                        'DeadBandValue': row[37] if len(row) > 37 else "",
+                        'DeadBandUnitValue': row[40] if len(row) > 40 else "",
                     })
                 elif schema_type == "_Notes":
                     schemas['_Notes'][tag_name] = {
@@ -267,35 +411,51 @@ class AlarmTransformer:
         Args:
             tag_name: The tag name
             asset_path: The asset path (optional)
-            method: Override method - "tag_prefix" or "asset_path" (optional)
+            method: Override method - "tag_prefix", "asset_path", or "both" (optional)
+        
+        Returns:
+            Unit string, or empty string if not found.
+            For "both" method, returns unit only if both methods agree.
         """
         import re
         
         # Determine which method to use
         use_method = method or self.config.get("unit_method", "TAG_PREFIX")
+        use_method = use_method.upper()
         
-        if use_method.upper() == "TAG_PREFIX":
-            unit = ""
-            for ch in tag_name:
-                if ch.isdigit():
-                    unit += ch
-                    if len(unit) >= self.config["unit_digits"]:
-                        break
-                elif unit:
+        # Extract unit from tag prefix
+        unit_from_prefix = ""
+        for ch in tag_name:
+            if ch.isdigit():
+                unit_from_prefix += ch
+                if len(unit_from_prefix) >= self.config["unit_digits"]:
                     break
-            return unit
+            elif unit_from_prefix:
+                break
         
-        elif use_method.upper() == "ASSET_PATH" and asset_path:
-            # Look for /Uxx/ pattern
+        # Extract unit from asset path
+        unit_from_asset = ""
+        if asset_path:
             match = re.search(r'/U(\d+)/', asset_path, re.IGNORECASE)
             if match:
-                return match.group(1)
-            # Try /Unitxx/ pattern
-            match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
-            if match:
-                return match.group(1)
+                unit_from_asset = match.group(1)
+            else:
+                match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
+                if match:
+                    unit_from_asset = match.group(1)
         
-        return ""
+        # Return based on method
+        if use_method == "TAG_PREFIX":
+            return unit_from_prefix
+        elif use_method == "ASSET_PATH":
+            return unit_from_asset
+        elif use_method == "BOTH":
+            # Both must match and be non-empty
+            if unit_from_prefix and unit_from_asset and unit_from_prefix == unit_from_asset:
+                return unit_from_prefix
+            return ""
+        
+        return unit_from_prefix  # default fallback
     
     def derive_tag_source(self, tag_name: str, point_type: str) -> Tuple[str, str]:
         """Derive tag source and enforcement from rules."""
@@ -335,19 +495,91 @@ class AlarmTransformer:
         return code, status
     
     def map_severity(self, consequence: str) -> str:
-        """Map consequence to severity code."""
-        if not consequence or consequence in ["~", ""]:
+        """Map consequence text to severity code (A-E or (N))."""
+        if not consequence or consequence.strip() in ["~", "", "-"]:
             return "(N)"
         
         c = consequence.strip().upper()
+        
+        # Already a letter code
         if c in ['A', 'B', 'C', 'D', 'E']:
             return c
+        
+        # Text to letter mapping
+        text_mapping = {
+            'CATASTROPHIC': 'A',
+            'MAJOR': 'B', 
+            'MODERATE': 'C',
+            'MINOR': 'D',
+            'INSIGNIFICANT': 'E',
+        }
+        
+        # Check for text matches (including partial)
+        for text, code in text_mapping.items():
+            if text in c or c in text:
+                return code
+        
+        # No match found
         return "(N)"
     
     def is_discrete(self, alarm_type: str) -> bool:
         """Check if alarm type is discrete."""
         at_lower = alarm_type.lower()
         return any(d in at_lower for d in self.DISCRETE_ALARM_TYPES)
+    
+    def _clean_value(self, value: str) -> str:
+        """Clean a value - return empty string for placeholder values like ~."""
+        if not value or value.strip() in ['~', '-', '']:
+            return ""
+        return value.strip()
+    
+    def validate_phapro_columns(self, col_map: Dict[str, int]) -> List[str]:
+        """
+        Validate that all required PHA-Pro columns are present.
+        
+        Returns:
+            List of missing column names (empty if all present)
+        """
+        # Required columns for reverse transformation
+        required_columns = {
+            'Tag Name': 'Tag identifier - needed to map back to DynAMo',
+            'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
+            'Alarm Type': 'Required to identify which alarm parameter to update',
+            'New (BPCS) Priority': 'Maps to DynAMo priorityValue',
+            'New Limit': 'Maps to DynAMo value field for analog alarms',
+            'Alarm Status': 'Determines consequence and disabled state',
+            'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
+            'Consequence(s)': 'Maps to DynAMo Consequence of No Action',
+            'Inside Action(s)': 'Maps to DynAMo Board Operator',
+            'Outside Action(s)': 'Maps to DynAMo Field Operator',
+            'Max Severity': 'Maps to DynAMo consequence field',
+            'Allowable Time to Respond': 'Maps to DynAMo TimeToRespond',
+        }
+        
+        # Check for missing columns
+        missing = []
+        for col_name in required_columns.keys():
+            if col_name not in col_map:
+                missing.append(col_name)
+        
+        return missing
+    
+    def get_required_columns_info(self) -> Dict[str, str]:
+        """Return dictionary of required columns and their purposes."""
+        return {
+            'Tag Name': 'Tag identifier - needed to map back to DynAMo',
+            'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
+            'Alarm Type': 'Required to identify which alarm parameter to update',
+            'New (BPCS) Priority': 'Maps to DynAMo priorityValue',
+            'New Limit': 'Maps to DynAMo value field for analog alarms',
+            'Alarm Status': 'Determines consequence and disabled state',
+            'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
+            'Consequence(s)': 'Maps to DynAMo Consequence of No Action',
+            'Inside Action(s)': 'Maps to DynAMo Board Operator',
+            'Outside Action(s)': 'Maps to DynAMo Field Operator',
+            'Max Severity': 'Maps to DynAMo consequence field',
+            'Allowable Time to Respond': 'Maps to DynAMo TimeToRespond',
+        }
     
     def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None) -> Tuple[str, Dict]:
         """Transform DynAMo to PHA-Pro format.
@@ -443,10 +675,14 @@ class AlarmTransformer:
                     priority_code,
                     param.get('value', '') if not self.is_discrete(param.get('alarmType', '')) else "",
                     param.get('value', '') if not self.is_discrete(param.get('alarmType', '')) else "",
-                    "", "",  # Deadband
-                    "~", "~",  # Deadband units
-                    "", "",  # On-delay
-                    "", "",  # Off-delay
+                    self._clean_value(param.get('DeadBandValue', '')),  # Old Deadband
+                    self._clean_value(param.get('DeadBandValue', '')),  # New Deadband (same as old)
+                    self._clean_value(param.get('DeadBandUnitValue', '')),  # Old Deadband Units
+                    self._clean_value(param.get('DeadBandUnitValue', '')),  # New Deadband Units
+                    self._clean_value(param.get('OnDelayValue', '')),   # Old On-Delay
+                    self._clean_value(param.get('OnDelayValue', '')),   # New On-Delay (same as old)
+                    self._clean_value(param.get('OffDelayValue', '')),  # Old Off-Delay
+                    self._clean_value(param.get('OffDelayValue', '')),  # New Off-Delay (same as old)
                     "Not Started_x",
                     alarm_status,
                     "",  # Alarm comment
@@ -460,10 +696,10 @@ class AlarmTransformer:
                     param.get('FieldOperator', '~') or "~",
                     "",  # H&S
                     "",  # Environment
-                    self.map_severity(param.get('consequence', '')),
+                    self.map_severity(param.get('consequence', '')),  # Financial (copy of max severity)
                     "",  # Reputation
                     "",  # Privilege
-                    self.map_severity(param.get('consequence', '')),
+                    self.map_severity(param.get('consequence', '')),  # Max Severity
                     param.get('TimeToRespond', '') or "",
                 ]
                 
@@ -481,6 +717,165 @@ class AlarmTransformer:
         
         return output.getvalue(), self.stats
     
+    def transform_forward_abb(self, file_bytes: bytes) -> Tuple[str, Dict]:
+        """Transform ABB Excel export to PHA-Pro format (23-column)."""
+        tags = self.parse_abb_excel(file_bytes)
+        
+        rows = []
+        self.stats = {"tags": 0, "alarms": 0, "units": set()}
+        
+        unit = self.config.get('unit_value', 'Line 1')
+        self.stats["units"].add(unit)
+        tag_source = self.config.get('default_source', 'ABB 800xA (DCS)')
+        
+        is_first_tag = True
+        
+        for tag in tags:
+            self.stats["tags"] += 1
+            is_first_alarm = True
+            
+            for alarm in tag['alarms']:
+                self.stats["alarms"] += 1
+                
+                # Determine alarm status
+                if alarm['enabled'] == 1:
+                    alarm_status = "Alarm"
+                else:
+                    alarm_status = "None"
+                
+                # Format level (use empty for disabled or -9999999)
+                level_val = alarm['level']
+                if level_val == -9999999 or level_val == -9999999.0:
+                    level_str = "-9999999"
+                else:
+                    level_str = str(int(level_val)) if level_val == int(level_val) else str(level_val)
+                
+                row = [
+                    unit if is_first_tag and is_first_alarm else "",  # Unit
+                    tag['tag_name'] if is_first_alarm else "",  # Starting Tag Name
+                    tag['tag_name'] if is_first_alarm else "",  # New Tag Name
+                    tag['description'] if is_first_alarm else "",  # Old Tag Description
+                    tag['description'] if is_first_alarm else "",  # New Tag Description
+                    tag_source if is_first_alarm else "",  # Tag Source
+                    f"Tag Type = Analog Input" if is_first_alarm else "",  # Rationalization (Tag) Comment
+                    "-9999999" if is_first_alarm else "",  # Range Min
+                    "-9999999" if is_first_alarm else "",  # Range Max
+                    "" if is_first_alarm else "",  # Engineering Units
+                    alarm['type'],  # Starting Alarm Type
+                    alarm['type'],  # New Alarm Type
+                    str(alarm['enabled']),  # Old Alarm Enable Status
+                    str(alarm['enabled']),  # New Alarm Enable Status
+                    str(alarm['severity']),  # Old Alarm Severity
+                    str(alarm['severity']),  # New Alarm Severity
+                    level_str,  # Old Limit
+                    level_str,  # New Limit
+                    str(alarm['priority']),  # Old (BPCS) Priority
+                    str(alarm['priority']),  # New (BPCS) Priority
+                    "Not Started_x",  # Rationalization Status
+                    alarm_status,  # Alarm Status
+                    "",  # Rationalization (Alarm) Comment
+                ]
+                
+                rows.append(row)
+                
+                if is_first_tag and is_first_alarm:
+                    is_first_tag = False
+                is_first_alarm = False
+        
+        # Convert to CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.ABB_PHAPRO_HEADERS)
+        writer.writerows(rows)
+        
+        return output.getvalue(), self.stats
+    
+    def transform_reverse_abb(self, file_content: str) -> Tuple[str, Dict]:
+        """Transform PHA-Pro export back to ABB 8-column format."""
+        lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        reader = csv.reader(lines)
+        
+        headers = next(reader)
+        col_map = {h.strip(): i for i, h in enumerate(headers)}
+        
+        rows = []
+        self.stats = {"tags": 0, "alarms": 0, "units": set()}
+        seen_tags = set()
+        
+        last_tag_name = ""
+        last_description = ""
+        
+        for row in reader:
+            if not row or not any(row):
+                continue
+            
+            # Get tag name (propagate from previous row if blank)
+            tag_name_col = col_map.get('New Tag Name', col_map.get('Starting Tag Name', col_map.get('Tag Name', 1)))
+            tag_name = row[tag_name_col].strip() if tag_name_col < len(row) else ""
+            
+            is_first_alarm_for_tag = False
+            if tag_name:
+                if tag_name != last_tag_name:
+                    is_first_alarm_for_tag = True
+                last_tag_name = tag_name
+                # Also get description
+                desc_col = col_map.get('New Tag Description', col_map.get('Old Tag Description', 4))
+                if desc_col < len(row) and row[desc_col].strip():
+                    last_description = row[desc_col].strip()
+            else:
+                tag_name = last_tag_name
+            
+            if tag_name not in seen_tags:
+                seen_tags.add(tag_name)
+                self.stats["tags"] += 1
+            
+            # Get alarm type
+            alarm_type_col = col_map.get('New Alarm Type', col_map.get('Starting Alarm Type', 11))
+            alarm_type = row[alarm_type_col].strip() if alarm_type_col < len(row) else ""
+            
+            if not alarm_type:
+                continue
+            
+            self.stats["alarms"] += 1
+            
+            # Get other fields
+            def get_col(name, default=""):
+                idx = col_map.get(name)
+                if idx is not None and idx < len(row):
+                    val = row[idx].strip()
+                    return val if val else default
+                return default
+            
+            enable_status = get_col('New Alarm Enable Status', '0')
+            new_limit = get_col('New Limit', '-9999999')
+            new_priority = get_col('New (BPCS) Priority', '3')
+            new_severity = get_col('New Alarm Severity', '1')
+            alarm_comment = get_col('Rationalization (Alarm) Comment', '')
+            
+            # Build consolidated notes (similar to ABB format)
+            notes = f"Cause:   Consequence:   Actions: {alarm_comment}" if alarm_comment else "Cause:   Consequence:   Actions: "
+            
+            output_row = [
+                tag_name if is_first_alarm_for_tag else "",  # Tag Name (only on first alarm)
+                last_description if is_first_alarm_for_tag else "",  # New Tag Description
+                alarm_type,  # New Alarm Type
+                enable_status,  # New Alarm Enable Status
+                new_limit,  # New Limit
+                new_priority,  # New Priority
+                new_severity,  # New Alarm Severity Level
+                notes,  # ABB Consolidated Notes
+            ]
+            
+            rows.append(output_row)
+        
+        # Convert to CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(self.ABB_RETURN_HEADERS)
+        writer.writerows(rows)
+        
+        return output.getvalue(), self.stats
+
     def transform_reverse(self, file_content: str, source_modes: Dict = None) -> Tuple[str, Dict]:
         """Transform PHA-Pro export back to DynAMo format."""
         lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
@@ -490,6 +885,11 @@ class AlarmTransformer:
         
         # Map column names to indices
         col_map = {h.strip(): i for i, h in enumerate(headers)}
+        
+        # Validate required columns
+        missing_columns = self.validate_phapro_columns(col_map)
+        if missing_columns:
+            raise ValueError(f"MISSING_COLUMNS:{','.join(missing_columns)}")
         
         rows = []
         self.stats = {"tags": 0, "alarms": 0, "units": set()}
@@ -770,11 +1170,12 @@ def main():
     with st.sidebar:
         st.markdown("### ⚙️ Configuration")
         
-        # Client selection
+        # Build client options from configs
         client_options = {
-            "flng": "Freeport LNG",
-            "hf_sinclair": "HF Sinclair",
+            client_id: config["name"] 
+            for client_id, config in AlarmTransformer.CLIENT_CONFIGS.items()
         }
+        
         selected_client = st.selectbox(
             "Select Client Profile",
             options=list(client_options.keys()),
@@ -782,32 +1183,37 @@ def main():
             help="Choose the client configuration for tag source rules and mappings"
         )
         
-        # Transformation direction
+        # Get the selected client's config for dynamic labels
+        client_config = AlarmTransformer.CLIENT_CONFIGS.get(selected_client, {})
+        dcs_name = client_config.get("dcs_name", "DCS")
+        pha_tool = client_config.get("pha_tool", "PHA-Pro")
+        
+        # Transformation direction with dynamic labels
         direction = st.radio(
             "Transformation Direction",
             options=["forward", "reverse"],
-            format_func=lambda x: "DynAMo → PHA-Pro" if x == "forward" else "PHA-Pro → DynAMo",
-            help="Forward: Create PHA-Pro import from DynAMo export\nReverse: Create DynAMo import from PHA-Pro export"
+            format_func=lambda x: f"{dcs_name} → {pha_tool}" if x == "forward" else f"{pha_tool} → {dcs_name}",
+            help=f"Forward: Create {pha_tool} import from {dcs_name} export\nReverse: Create {dcs_name} import from {pha_tool} export"
         )
         
         st.markdown("---")
         
         # Help section
         with st.expander("ℹ️ How to Use"):
-            st.markdown("""
-            **Forward Transformation (DynAMo → PHA-Pro)**
-            1. Export your alarm database from DynAMo as CSV
+            st.markdown(f"""
+            **Forward Transformation ({dcs_name} → {pha_tool})**
+            1. Export your alarm database from {dcs_name} as CSV
             2. Upload the CSV file below
             3. Select units to process (optional)
             4. Click Transform
-            5. Download the PHA-Pro import file
+            5. Download the {pha_tool} import file
             
-            **Reverse Transformation (PHA-Pro → DynAMo)**
-            1. Export from PHA-Pro MADB as CSV
+            **Reverse Transformation ({pha_tool} → {dcs_name})**
+            1. Export from {pha_tool} MADB as CSV
             2. Upload the CSV file below
-            3. Optionally upload original DynAMo file for mode preservation
+            3. Optionally upload original {dcs_name} file for mode preservation
             4. Click Transform
-            5. Download the DynAMo _Parameter import file
+            5. Download the {dcs_name} _Parameter import file
             """)
         
         st.markdown("---")
@@ -825,102 +1231,126 @@ def main():
         st.markdown("### 📁 Upload Files")
         
         if direction == "forward":
-            st.info("Upload your DynAMo database export CSV file")
-            uploaded_file = st.file_uploader(
-                "DynAMo Export CSV",
-                type=['csv'],
-                help="The CSV file exported from DynAMo containing _DCSVariable, _DCS, _Parameter schemas"
-            )
+            # Determine file types based on client parser
+            parser_type = client_config.get("parser", "dynamo")
             
-            # Unit detection and selection
-            unit_filter = ""
-            unit_method_choice = "tag_prefix"  # default
+            if parser_type == "abb":
+                st.info(f"Upload your {dcs_name} database export file (Excel .xlsx)")
+                uploaded_file = st.file_uploader(
+                    f"{dcs_name} Export",
+                    type=['xlsx', 'xls'],
+                    help=f"The Excel file exported from {dcs_name} containing alarm configuration"
+                )
+                # ABB doesn't need unit detection - it uses fixed unit
+                unit_filter = ""
+                unit_method_choice = "fixed"
+            else:
+                st.info(f"Upload your {dcs_name} database export CSV file")
+                uploaded_file = st.file_uploader(
+                    f"{dcs_name} Export CSV",
+                    type=['csv'],
+                    help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas"
+                )
             
-            if uploaded_file is not None:
-                # Scan file for available units
-                raw_bytes = uploaded_file.read()
-                uploaded_file.seek(0)  # Reset for later use
+            # Unit detection and selection (only for DynAMo parser)
+            if parser_type != "abb":
+                unit_filter = ""
+                unit_method_choice = "tag_prefix"  # default
                 
-                file_content = None
-                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                    try:
-                        file_content = raw_bytes.decode(enc)
-                        break
-                    except UnicodeDecodeError:
-                        continue
+                if uploaded_file is not None:
+                    # Scan file for available units
+                    raw_bytes = uploaded_file.read()
+                    uploaded_file.seek(0)  # Reset for later use
+                    
+                    file_content = None
+                    for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                        try:
+                            file_content = raw_bytes.decode(enc)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    
+                    if file_content:
+                        # Extract units using both methods
+                        units_by_prefix, units_by_asset = scan_for_units(file_content, selected_client)
+                        
+                        # Show unit detection results
+                        st.markdown("### 📊 Units Detected")
+                        
+                        # For FLNG, show both methods and let user choose
+                        if selected_client == "flng":
+                            col_a, col_b = st.columns(2)
+                            
+                            with col_a:
+                                st.markdown("**By Tag Prefix:**")
+                                if units_by_prefix:
+                                    st.code(", ".join(sorted(units_by_prefix, key=lambda x: (len(x), x))))
+                                else:
+                                    st.write("None found")
+                            
+                            with col_b:
+                                st.markdown("**By Asset Path:**")
+                                if units_by_asset:
+                                    st.code(", ".join(sorted(units_by_asset, key=lambda x: (len(x), x))))
+                                else:
+                                    st.write("None found")
+                            
+                            # Let user choose method if they differ
+                            if units_by_prefix != units_by_asset:
+                                unit_method_choice = st.radio(
+                                    "Which unit extraction method should be used?",
+                                    options=["tag_prefix", "asset_path", "both"],
+                                    format_func=lambda x: {
+                                        "tag_prefix": "Tag Prefix (first digits of tag name)",
+                                        "asset_path": "Asset Path (from /Uxx/ in path)",
+                                        "both": "Both (tag must match both methods)"
+                                    }[x],
+                                    help="Tag Prefix: Uses first 2 digits of tag name (e.g., 67FIC0101 → Unit 67)\nAsset Path: Uses unit from asset hierarchy (e.g., /Assets/U67/ → Unit 67)\nBoth: Tag must have matching unit in both tag name AND asset path",
+                                    horizontal=True
+                                )
+                            
+                            # Show the units for selected method
+                            available_units = units_by_prefix if unit_method_choice == "tag_prefix" else units_by_asset
+                        else:
+                            # For other clients, just show detected units
+                            available_units = units_by_prefix
+                            st.markdown(f"**Available Units:** {', '.join(sorted(available_units, key=lambda x: (len(x), x))) if available_units else 'None detected'}")
+                        
+                        st.markdown("---")
                 
-                if file_content:
-                    # Extract units using both methods
-                    units_by_prefix, units_by_asset = scan_for_units(file_content, selected_client)
-                    
-                    # Show unit detection results
-                    st.markdown("### 📊 Units Detected")
-                    
-                    # For FLNG, show both methods and let user choose
-                    if selected_client == "flng":
-                        col_a, col_b = st.columns(2)
-                        
-                        with col_a:
-                            st.markdown("**By Tag Prefix:**")
-                            if units_by_prefix:
-                                st.code(", ".join(sorted(units_by_prefix, key=lambda x: (len(x), x))))
-                            else:
-                                st.write("None found")
-                        
-                        with col_b:
-                            st.markdown("**By Asset Path:**")
-                            if units_by_asset:
-                                st.code(", ".join(sorted(units_by_asset, key=lambda x: (len(x), x))))
-                            else:
-                                st.write("None found")
-                        
-                        # Let user choose method if they differ
-                        if units_by_prefix != units_by_asset:
-                            unit_method_choice = st.radio(
-                                "Which unit extraction method should be used?",
-                                options=["tag_prefix", "asset_path"],
-                                format_func=lambda x: "Tag Prefix (first digits of tag name)" if x == "tag_prefix" else "Asset Path (from /Uxx/ in path)",
-                                help="Tag Prefix: Uses first 2 digits of tag name (e.g., 67FIC0101 → Unit 67)\nAsset Path: Uses unit from asset hierarchy (e.g., /Assets/U67/ → Unit 67)",
-                                horizontal=True
-                            )
-                        
-                        # Show the units for selected method
-                        available_units = units_by_prefix if unit_method_choice == "tag_prefix" else units_by_asset
-                    else:
-                        # For other clients, just show detected units
-                        available_units = units_by_prefix
-                        st.markdown(f"**Available Units:** {', '.join(sorted(available_units, key=lambda x: (len(x), x))) if available_units else 'None detected'}")
-                    
-                    st.markdown("---")
-            
-            # Unit filter input
-            unit_filter = st.text_input(
-                "Filter by Unit(s)",
-                placeholder="e.g., 67 or 67,68,70 (leave blank for all)",
-                help="Enter unit numbers separated by commas to filter. Leave blank to process all units."
-            )
-            
-            # Store the method choice in session state for use during transform
-            if 'unit_method_choice' not in st.session_state:
-                st.session_state.unit_method_choice = "tag_prefix"
-            if uploaded_file is not None and selected_client == "flng":
-                st.session_state.unit_method_choice = unit_method_choice
+                # Unit filter input
+                unit_filter = st.text_input(
+                    "Filter by Unit(s)",
+                    placeholder="e.g., 67 or 67,68,70 (leave blank for all)",
+                    help="Enter unit numbers separated by commas to filter. Leave blank to process all units."
+                )
+                
+                # Store the method choice in session state for use during transform
+                if 'unit_method_choice' not in st.session_state:
+                    st.session_state.unit_method_choice = "tag_prefix"
+                if uploaded_file is not None and selected_client == "flng":
+                    st.session_state.unit_method_choice = unit_method_choice
+            else:
+                # ABB uses fixed unit from config
+                unit_value = client_config.get('unit_value', 'Line 1')
+                st.markdown(f"### 📊 Unit: **{unit_value}**")
+                st.markdown("---")
             
             source_file = None
             
         else:
-            st.info("Upload your PHA-Pro MADB export CSV file")
+            st.info(f"Upload your {pha_tool} MADB export CSV file")
             uploaded_file = st.file_uploader(
-                "PHA-Pro Export CSV",
+                f"{pha_tool} Export CSV",
                 type=['csv'],
-                help="The CSV file exported from PHA-Pro Alarm Management Database"
+                help=f"The CSV file exported from {pha_tool} Alarm Management Database"
             )
             
-            st.markdown("**Optional: Original DynAMo file for mode preservation**")
+            st.markdown(f"**Optional: Original {dcs_name} file for mode preservation**")
             source_file = st.file_uploader(
-                "Original DynAMo Export (optional)",
+                f"Original {dcs_name} Export (optional)",
                 type=['csv'],
-                help="Upload the original DynAMo export to preserve mode values"
+                help=f"Upload the original {dcs_name} export to preserve mode values"
             )
             
             unit_filter = None
@@ -929,17 +1359,17 @@ def main():
         st.markdown("### 📋 Output Format")
         
         if direction == "forward":
-            st.markdown("""
-            **PHA-Pro 45-Column Import**
+            st.markdown(f"""
+            **{pha_tool} 45-Column Import**
             - Hierarchical format
             - Unit/Tag/Alarm structure
             - Ready for MADB import
             """)
         else:
-            st.markdown("""
-            **DynAMo _Parameter 42-Column**
+            st.markdown(f"""
+            **{dcs_name} _Parameter 42-Column**
             - Flat format
-            - Direct DynAMo import
+            - Direct {dcs_name} import
             - Mode preservation supported
             """)
     
@@ -959,60 +1389,89 @@ def main():
         if transform_clicked:
             with st.spinner("Processing..."):
                 try:
-                    # Read file with encoding detection
-                    raw_bytes = uploaded_file.read()
-                    file_content = None
-                    for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                        try:
-                            file_content = raw_bytes.decode(enc)
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                    
-                    if file_content is None:
-                        st.error("Could not decode file. Please ensure it's a valid CSV file.")
-                        st.stop()
+                    # Get parser type
+                    parser_type = client_config.get("parser", "dynamo")
                     
                     # Create transformer
                     transformer = AlarmTransformer(selected_client)
                     
                     if direction == "forward":
-                        # Parse unit filter
-                        selected_units = None
-                        if unit_filter and unit_filter.strip():
-                            selected_units = [u.strip() for u in unit_filter.split(',')]
-                        
-                        # Get unit method from session state (for FLNG)
-                        unit_method = st.session_state.get('unit_method_choice', 'tag_prefix')
-                        
-                        # Transform
-                        output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
-                        output_filename = f"{selected_client.upper()}_PHA-Pro_Import.csv"
-                        
-                    else:
-                        # Load source modes if provided
-                        source_modes = {}
-                        if source_file:
-                            source_raw = source_file.read()
-                            source_content = None
+                        if parser_type == "abb":
+                            # ABB uses Excel, read as bytes
+                            raw_bytes = uploaded_file.read()
+                            output_csv, stats = transformer.transform_forward_abb(raw_bytes)
+                            output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
+                        else:
+                            # DynAMo uses CSV
+                            raw_bytes = uploaded_file.read()
+                            file_content = None
                             for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
                                 try:
-                                    source_content = source_raw.decode(enc)
+                                    file_content = raw_bytes.decode(enc)
                                     break
                                 except UnicodeDecodeError:
                                     continue
                             
-                            if source_content:
-                                # Parse source modes
-                                lines = source_content.replace('\r\n', '\n').split('\n')
-                                reader = csv.reader(lines)
-                                for row in reader:
-                                    if len(row) >= 6 and row[0] == "_Variable" and row[2] == "_Parameter":
-                                        source_modes[(row[1], row[5])] = row[3]
+                            if file_content is None:
+                                st.error("Could not decode file. Please ensure it's a valid CSV file.")
+                                st.stop()
+                            
+                            # Parse unit filter
+                            selected_units = None
+                            if unit_filter and unit_filter.strip():
+                                selected_units = [u.strip() for u in unit_filter.split(',')]
+                            
+                            # Get unit method from session state (for FLNG)
+                            unit_method = st.session_state.get('unit_method_choice', 'tag_prefix')
+                            
+                            # Transform
+                            output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
+                            output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
                         
-                        # Transform
-                        output_csv, stats = transformer.transform_reverse(file_content, source_modes)
-                        output_filename = f"{selected_client.upper()}_DynAMo_Return.csv"
+                    else:
+                        # Reverse transformation - always CSV input
+                        raw_bytes = uploaded_file.read()
+                        file_content = None
+                        for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                            try:
+                                file_content = raw_bytes.decode(enc)
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                        
+                        if file_content is None:
+                            st.error("Could not decode file. Please ensure it's a valid CSV file.")
+                            st.stop()
+                        
+                        if parser_type == "abb":
+                            # ABB reverse transformation
+                            output_csv, stats = transformer.transform_reverse_abb(file_content)
+                            output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
+                        else:
+                            # DynAMo reverse transformation
+                            # Load source modes if provided
+                            source_modes = {}
+                            if source_file:
+                                source_raw = source_file.read()
+                                source_content = None
+                                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                                    try:
+                                        source_content = source_raw.decode(enc)
+                                        break
+                                    except UnicodeDecodeError:
+                                        continue
+                                
+                                if source_content:
+                                    # Parse source modes
+                                    lines = source_content.replace('\r\n', '\n').split('\n')
+                                    reader = csv.reader(lines)
+                                    for row in reader:
+                                        if len(row) >= 6 and row[0] == "_Variable" and row[2] == "_Parameter":
+                                            source_modes[(row[1], row[5])] = row[3]
+                            
+                            # Transform
+                            output_csv, stats = transformer.transform_reverse(file_content, source_modes)
+                            output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
                     
                     # Show success
                     st.markdown("""
@@ -1066,8 +1525,44 @@ def main():
                         st.dataframe(preview_df, use_container_width=True)
                     
                 except Exception as e:
-                    st.error(f"Error during transformation: {str(e)}")
-                    st.exception(e)
+                    error_msg = str(e)
+                    
+                    # Check if this is a missing columns error
+                    if error_msg.startswith("MISSING_COLUMNS:"):
+                        missing_cols = error_msg.replace("MISSING_COLUMNS:", "").split(",")
+                        
+                        st.markdown("""
+                        <div class="status-warning">
+                            <strong>⚠️ Missing Required Columns</strong><br>
+                            Your PHA-Pro export is missing columns needed for the DynAMo transformation.
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown("### 📋 Missing Columns")
+                        st.markdown("Please add the following columns to your PHA-Pro export file:")
+                        
+                        # Get column descriptions
+                        col_info = transformer.get_required_columns_info()
+                        
+                        # Create a nice table
+                        missing_data = []
+                        for col in missing_cols:
+                            description = col_info.get(col, "Required for transformation")
+                            missing_data.append({"Column Name": col, "Purpose": description})
+                        
+                        st.table(missing_data)
+                        
+                        st.markdown("---")
+                        st.markdown("**How to fix:**")
+                        st.markdown("""
+                        1. Open your PHA-Pro export in Excel
+                        2. Add the missing column(s) with the exact names shown above
+                        3. The columns can be empty if you don't have the data - they just need to exist
+                        4. Save and re-upload the file
+                        """)
+                    else:
+                        st.error(f"Error during transformation: {error_msg}")
+                        st.exception(e)
     
     else:
         st.markdown("""
