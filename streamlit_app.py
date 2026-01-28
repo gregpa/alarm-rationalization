@@ -1888,9 +1888,45 @@ Thanks,
                     if stats.get('not_found', 0) > 0:
                         st.warning(f"⚠️ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
                     
-                    # Show skipped modes info
+                    # Show skipped modes info with expandable explanation
                     if stats.get('skipped_modes', 0) > 0:
                         st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
+                        
+                        with st.expander("🔍 Click here to understand why rows were skipped"):
+                            st.markdown("""
+### What are "Modes" in DynAMo?
+
+DynAMo uses **modes** to manage alarm configurations across different plant operating states. Each alarm can have different settings depending on which mode the plant is operating in:
+
+| Mode | Purpose |
+|------|---------|
+| **NORMAL** | Standard operating conditions - this is the primary/active configuration |
+| **IMPORT** | Used during data import operations |
+| **Export** / **EXPORT** | Used during data export operations |
+| **Base** | Baseline configuration template |
+| **Startup** | Special settings during plant startup |
+| **Shutdown** | Special settings during plant shutdown |
+
+### Why are non-NORMAL rows skipped?
+
+1. **The NORMAL mode is the active configuration** - When DynAMo is running in normal operations, it uses the NORMAL mode settings. The PHA-Pro rationalization process focuses on these active alarm configurations.
+
+2. **Other modes are system/administrative rows** - Rows with modes like IMPORT, Export, EXPORT are typically:
+   - Temporary configurations used during data transfers
+   - Backup/snapshot configurations
+   - Not actively used for alarm management
+
+3. **Prevents duplicate alarms** - Your original DynAMo export file contains multiple rows for the same (tag, alarm type) combination - one for each mode. If we included all modes, the output would have duplicate entries that would cause import errors.
+
+4. **Matches the manual process** - The manual Excel-based workflow also filters to only include NORMAL mode rows in the final import file.
+
+### What this means for your output:
+
+- ✅ **{:,} alarm rows with mode=NORMAL** were processed and included in the output
+- ⏭️ **{:,} rows with other modes** were skipped (they exist in your source file but are not part of the active alarm configuration)
+
+The output file contains exactly one row per (tag, alarm type) combination, matching what DynAMo expects for a clean import.
+                            """.format(stats['alarms'], stats['skipped_modes']))
                     
                     # Download button
                     st.markdown("### 📥 Download")
