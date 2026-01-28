@@ -100,13 +100,25 @@ def check_password():
                     st.warning("Please enter both username and password")
         
         st.markdown("---")
-        st.markdown(
-            '<p style="text-align: center; color: #6c757d; font-size: 0.85rem;">'
-            '🔑 Forgot your password?<br>'
-            'Email <a href="mailto:greg.pajak@aesolutions.com?subject=Password%20Reset%20Request%20-%20Alarm%20Rationalization%20Platform">greg.pajak@aesolutions.com</a> for a new password.'
-            '</p>',
-            unsafe_allow_html=True
-        )
+        
+        # Forgot password and Request Access links
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            st.markdown(
+                '<p style="text-align: center; color: #6c757d; font-size: 0.85rem;">'
+                '🔑 <a href="mailto:greg.pajak@aesolutions.com?subject=Password%20Reset%20Request%20-%20Alarm%20Platform">Forgot password?</a>'
+                '</p>',
+                unsafe_allow_html=True
+            )
+        
+        with col_b:
+            st.markdown(
+                '<p style="text-align: center; color: #6c757d; font-size: 0.85rem;">'
+                '📝 <a href="mailto:greg.pajak@aesolutions.com?subject=Access%20Request%20-%20Alarm%20Rationalization%20Platform&body=Hi%20Greg%2C%0A%0AI%20would%20like%20to%20request%20access%20to%20the%20Alarm%20Rationalization%20Platform.%0A%0AName%3A%20%0ACompany%3A%20%0AReason%20for%20access%3A%20%0A%0AThanks">Request access</a>'
+                '</p>',
+                unsafe_allow_html=True
+            )
     
     return False
 
