@@ -1070,9 +1070,11 @@ class AlarmTransformer:
             raise ValueError("Original DynAMo export file is required for reverse transformation. Please upload the original file.")
         
         # Process each row from original DynAMo file
+        # IMPORTANT: Only output rows with mode = "NORMAL" (skip IMPORT, Export, EXPORT, etc.)
         rows = []
-        self.stats = {"tags": 0, "alarms": 0, "units": set(), "updated": 0, "not_found": 0}
+        self.stats = {"tags": 0, "alarms": 0, "units": set(), "updated": 0, "not_found": 0, "skipped_modes": 0}
         seen_tags = set()
+        seen_keys = set()  # Track (tag, alarm_type) to avoid duplicates
         
         for original_row in source_data['rows']:
             # Original row should have at least the key columns
@@ -1084,7 +1086,20 @@ class AlarmTransformer:
                 continue
             
             tag_name = original_row[1]
+            mode = original_row[3] if len(original_row) > 3 else ""
             alarm_type = original_row[5]
+            
+            # FILTER: Only include rows with mode = "NORMAL"
+            # Skip IMPORT, Export, EXPORT, Base, etc.
+            if mode.upper() != "NORMAL":
+                self.stats["skipped_modes"] += 1
+                continue
+            
+            # Skip duplicate (tag, alarm_type) combinations
+            key = (tag_name, alarm_type)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             
             if tag_name not in seen_tags:
                 seen_tags.add(tag_name)
@@ -1096,13 +1111,12 @@ class AlarmTransformer:
             # Ensure row has all 42 columns
             output_row = list(original_row)
             while len(output_row) < 42:
-                output_row.append("~")
+                output_row.append("")
             
             # Add apostrophe to _Variable for import
             output_row[0] = "'_Variable"
             
             # Look up PHA-Pro changes for this tag/alarm
-            key = (tag_name, alarm_type)
             if key in pha_changes:
                 changes = pha_changes[key]
                 self.stats["updated"] += 1
@@ -1121,18 +1135,26 @@ class AlarmTransformer:
                     new_limit = '~'
                 
                 # Determine value based on alarm type
+                # For discrete alarms and alarms with no limit, keep original value or use ~
                 if self.is_discrete(alarm_type):
+                    # Discrete alarms: keep ~ (not --------)
                     value = "~"
                 elif "significant change" in at_lower:
+                    # Significant change alarms: use --------
                     value = "--------"
                 elif new_limit and new_limit not in ["~", "", "-9999999"]:
+                    # Has a valid limit value - use it as-is (preserve decimal formatting)
                     value = new_limit
+                elif new_limit == "~" or new_limit == "":
+                    # Explicit ~ or empty - keep as ~
+                    value = "~"
                 else:
+                    # -9999999 or other invalid - use --------
                     value = "--------"
                 
                 output_row[7] = value  # Column H: value
                 
-                # Update enforcement for value if alarm name exists
+                # Update enforcement for value ONLY if alarm name exists
                 if output_row[6]:  # alarmName exists
                     output_row[8] = enforcement  # Column I: enforcement
                 
@@ -1157,12 +1179,20 @@ class AlarmTransformer:
                     priority_value = priority_map.get(new_priority.upper(), new_priority)
                 
                 output_row[10] = priority_value  # Column K: priorityValue
-                output_row[11] = enforcement  # Column L: priorityEnforcement
+                
+                # Column L (priorityEnforcement): Only update if original had a value
+                # Don't add enforcement where it didn't exist (e.g., significant change, accumulator)
+                original_l = original_row[11].strip() if len(original_row) > 11 else ""
+                if original_l:
+                    output_row[11] = enforcement  # Column L: priorityEnforcement
+                # else keep original (empty)
                 
                 # --- UPDATE COLUMN M (index 12): consequence ---
                 max_severity = changes['max_severity']
                 if max_severity in ['A', 'B', 'C', 'D', 'E']:
                     output_row[12] = max_severity
+                elif max_severity and max_severity.upper() == 'NONE':
+                    output_row[12] = '(None)'  # Use (None) not (N)
                 elif max_severity:
                     output_row[12] = max_severity
                 # else keep original
@@ -1836,6 +1866,10 @@ Thanks,
                     # Show not_found warning if any
                     if stats.get('not_found', 0) > 0:
                         st.warning(f"⚠️ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
+                    
+                    # Show skipped modes info
+                    if stats.get('skipped_modes', 0) > 0:
+                        st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
                     
                     # Download button
                     st.markdown("### 📥 Download")
