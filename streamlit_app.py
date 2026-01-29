@@ -668,7 +668,36 @@ class AlarmTransformer:
         """Clean a value - return empty string for placeholder values like ~."""
         if not value or value.strip() in ['~', '-', '']:
             return ""
-        return value.strip()
+        return self._fix_encoding(value.strip())
+    
+    def _fix_encoding(self, value: str) -> str:
+        """Fix common encoding issues, particularly the degree symbol.
+        
+        When Latin-1 encoded files are read and then written to UTF-8,
+        characters like ° can get double-encoded (Â°).
+        This fixes those issues.
+        """
+        if not value:
+            return value
+        
+        # Common encoding fixes
+        # These occur when UTF-8 bytes are interpreted as Latin-1
+        replacements = {
+            'Â°': '°',      # Double-encoded degree symbol (UTF-8 0xC2 0xB0 as Latin-1)
+            'Â\xa0': '\xa0',  # Non-breaking space (UTF-8 0xC2 0xA0 as Latin-1)
+            'Â ': ' ',      # Another form of space encoding issue
+            'â€™': "'",     # Smart quote
+            'â€"': '–',     # En dash
+            'â€"': '—',     # Em dash
+            'Ã©': 'é',      # Accented e
+            'Ã±': 'ñ',      # Spanish n
+        }
+        
+        result = value
+        for bad, good in replacements.items():
+            result = result.replace(bad, good)
+        
+        return result
     
     def validate_phapro_columns(self, col_map: Dict[str, int]) -> List[str]:
         """
@@ -787,7 +816,9 @@ class AlarmTransformer:
             self.stats["units"].add(final_unit)
             
             # Get engineering units - prefer _DCS, fall back to _DCSVariable
+            # Apply encoding fix for degree symbol and other characters
             eng_units = dcs_data.get('engUnits', '') or var_data.get('engUnits', '')
+            eng_units = self._fix_encoding(eng_units)
             
             # Clean range values (remove commas)
             range_min = dcs_data.get('PVEULO', '0').replace(',', '')
@@ -802,7 +833,7 @@ class AlarmTransformer:
                 'tag_name': tag_name,
                 'unit': final_unit,
                 'point_type': point_type,
-                'desc': dcs_data.get('desc', ''),
+                'desc': self._fix_encoding(dcs_data.get('desc', '')),
                 'eng_units': eng_units,
                 'range_min': range_min or '0',
                 'range_max': range_max or '1',
@@ -1333,30 +1364,28 @@ class AlarmTransformer:
                 # Always update from PHA-Pro (even if ~)
                 causes = changes['causes']
                 if causes:
-                    # Fix UTF-8 encoding artifact: Â followed by non-breaking space -> just non-breaking space
-                    # This happens when UTF-8 (0xC2 0xA0) is read as latin-1
-                    causes = causes.replace('Â\xa0', '\xa0').replace('Â ', ' ')
+                    causes = self._fix_encoding(causes)
                     output_row[16] = causes
                 
                 # --- UPDATE COLUMN R (index 17): Consequence of No Action ---
                 # Always update from PHA-Pro (even if ~)
                 consequences = changes['consequences']
                 if consequences:
-                    consequences = consequences.replace('Â\xa0', '\xa0').replace('Â ', ' ')
+                    consequences = self._fix_encoding(consequences)
                     output_row[17] = consequences
                 
                 # --- UPDATE COLUMN S (index 18): Board Operator (Inside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 inside_actions = changes['inside_actions']
                 if inside_actions:
-                    inside_actions = inside_actions.replace('Â\xa0', '\xa0').replace('Â ', ' ')
+                    inside_actions = self._fix_encoding(inside_actions)
                     output_row[18] = inside_actions
                 
                 # --- UPDATE COLUMN T (index 19): Field Operator (Outside Action) ---
                 # Always update from PHA-Pro (even if ~)
                 outside_actions = changes['outside_actions']
                 if outside_actions:
-                    outside_actions = outside_actions.replace('Â\xa0', '\xa0').replace('Â ', ' ')
+                    outside_actions = self._fix_encoding(outside_actions)
                     output_row[19] = outside_actions
                 
                 # --- UPDATE COLUMN Z (index 25): DisabledValue ---
