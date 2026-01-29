@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple, Optional
 # Page configuration - must be first Streamlit command
 st.set_page_config(
     page_title="Alarm Rationalization Platform",
-    page_icon="ðŸ””",
+    page_icon="🔔",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -40,7 +40,7 @@ def check_password():
             return False
         except Exception:
             # If secrets not configured, allow access (for local development)
-            st.warning("âš ï¸ Authentication not configured. Running in open mode.")
+            st.warning("⚠️ Authentication not configured. Running in open mode.")
             return True
     
     # Check if already authenticated
@@ -79,7 +79,7 @@ def check_password():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown('<h1 class="login-title">ðŸ”” Alarm Rationalization Platform</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 class="login-title">🔔 Alarm Rationalization Platform</h1>', unsafe_allow_html=True)
         st.markdown('<p class="login-subtitle">Please log in to continue</p>', unsafe_allow_html=True)
         
         with st.form("login_form"):
@@ -107,7 +107,7 @@ def check_password():
         with col_a:
             st.markdown(
                 '<p style="text-align: center; color: #6c757d; font-size: 0.85rem;">'
-                'ðŸ”‘ <a href="mailto:greg.pajak@aesolutions.com?subject=Password%20Reset%20Request%20-%20Alarm%20Platform">Forgot password?</a>'
+                '📝‘ <a href="mailto:greg.pajak@aesolutions.com?subject=Password%20Reset%20Request%20-%20Alarm%20Platform">Forgot password?</a>'
                 '</p>',
                 unsafe_allow_html=True
             )
@@ -742,7 +742,7 @@ class AlarmTransformer:
         """Fix common encoding issues, particularly the degree symbol.
         
         When Latin-1 encoded files are read and then written to UTF-8,
-        characters like Â° can get double-encoded (Ã‚Â°).
+        characters like ° can get double-encoded (Ã‚°).
         This fixes those issues.
         """
         if not value:
@@ -751,12 +751,12 @@ class AlarmTransformer:
         # Common encoding fixes
         # These occur when UTF-8 bytes are interpreted as Latin-1
         replacements = {
-            'Ã‚Â°': 'Â°',      # Double-encoded degree symbol (UTF-8 0xC2 0xB0 as Latin-1)
+            'Ã‚°': '°',      # Double-encoded degree symbol (UTF-8 0xC2 0xB0 as Latin-1)
             'Ã‚\xa0': '\xa0',  # Non-breaking space (UTF-8 0xC2 0xA0 as Latin-1)
             'Ã‚ ': ' ',      # Another form of space encoding issue
             'Ã¢â‚¬â„¢': "'",     # Smart quote
-            'Ã¢â‚¬"': 'â€“',     # En dash
-            'Ã¢â‚¬"': 'â€”',     # Em dash
+            'Ã¢â‚¬"': '—',     # En dash
+            'Ã¢â‚¬"': '–',     # Em dash
             'ÃƒÂ©': 'Ã©',      # Accented e
             'ÃƒÂ±': 'Ã±',      # Spanish n
         }
@@ -1984,7 +1984,7 @@ def main():
             st.rerun()
         
         st.markdown("---")
-        st.markdown("### âš™ï¸ Configuration")
+        st.markdown("### ⚙️ Configuration")
         
         # Build client options from configs
         client_options = {
@@ -2020,13 +2020,14 @@ def main():
         
         # Request New Client/Area button
         import urllib.parse as sidebar_urllib
+        current_area_name = area_options.get(selected_area, "N/A") if selected_area else "N/A"
         request_subject = sidebar_urllib.quote("New Client/Area Request - Alarm Platform")
-        request_body = sidebar_urllib.quote("Hi Greg,\n\nI need a new client or unit/area added.\n\nCurrent: " + client_options.get(selected_client, "Unknown") + "\nArea: " + (area_options.get(selected_area, "N/A") if selected_area else "N/A") + "\n\nNew Request:\n- Client/Site: \n- Unit/Area: \n- DCS System: \n\nThanks")
+        request_body = sidebar_urllib.quote(f"Hi Greg,\n\nI need a new client or unit/area added.\n\nCurrent: {client_options.get(selected_client, 'Unknown')}\nArea: {current_area_name}\n\nNew Request:\n- Client/Site: \n- Unit/Area: \n- DCS System: \n\nThanks")
         request_link = f"mailto:greg.pajak@aesolutions.com?subject={request_subject}&body={request_body}"
         st.markdown(
             f'<a href="{request_link}" style="text-decoration: none;">'
             f'<div style="background-color: #2d5a87; color: white; padding: 8px 12px; border-radius: 5px; text-align: center; font-size: 0.85rem; margin-top: 10px;">'
-            f'Request New Client/Area'
+            f'📧 Request New Client/Area'
             f'</div></a>',
             unsafe_allow_html=True
         )
@@ -2038,17 +2039,17 @@ def main():
         direction = st.radio(
             "Transformation Direction",
             options=["forward", "reverse"],
-            format_func=lambda x: f"{dcs_name} â†’ {pha_tool}" if x == "forward" else f"{pha_tool} â†’ {dcs_name}",
+            format_func=lambda x: f"{dcs_name} → {pha_tool}" if x == "forward" else f"{pha_tool} → {dcs_name}",
             help=f"Forward: Create {pha_tool} import from {dcs_name} export\nReverse: Create {dcs_name} import from {pha_tool} export"
         )
         
         st.markdown("---")
         
         # Help section
-        with st.expander("â„¹ï¸ How to Use"):
+        with st.expander("ℹ️ How to Use"):
             if client_config.get("parser", "dynamo") == "dynamo":
                 st.markdown(f"""
-                **Forward Transformation ({dcs_name} â†’ {pha_tool})**
+                **Forward Transformation ({dcs_name} → {pha_tool})**
                 1. Export your alarm database from {dcs_name} as CSV
                 2. Upload the CSV file below
                 3. **Select unit extraction method:**
@@ -2060,7 +2061,7 @@ def main():
                 6. Download the {pha_tool} import file
                 7. **Review P&ID assignments** before importing to {pha_tool}
                 
-                **Reverse Transformation ({pha_tool} â†’ {dcs_name})**
+                **Reverse Transformation ({pha_tool} → {dcs_name})**
                 1. Export from {pha_tool} MADB as CSV
                 2. Upload the {pha_tool} export file
                 3. **Upload the original {dcs_name} export** (required for Mode preservation)
@@ -2078,13 +2079,13 @@ def main():
                 """)
             else:
                 st.markdown(f"""
-                **Forward Transformation ({dcs_name} â†’ {pha_tool})**
+                **Forward Transformation ({dcs_name} → {pha_tool})**
                 1. Export your alarm database from {dcs_name} as Excel
                 2. Upload the Excel file below
                 3. Click Transform
                 4. Download the {pha_tool} import file
                 
-                **Reverse Transformation ({pha_tool} â†’ {dcs_name})**
+                **Reverse Transformation ({pha_tool} → {dcs_name})**
                 1. Export from {pha_tool} MADB as CSV
                 2. Upload the CSV file below
                 3. Click Transform
@@ -2092,7 +2093,7 @@ def main():
                 """)
         
         st.markdown("---")
-        st.markdown("### ðŸ“Š About")
+        st.markdown("### 📊 About")
         st.markdown(f"""
         **Version:** 3.22  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
@@ -2105,8 +2106,8 @@ def main():
             - Fixed Unit column: only shows on first row of each unit group (not every tag)
             
             **v3.21** - Jan 2026
-            - Fixed encoding output (Latin-1 bytes for proper Â°F display)
-            - Comma stripping in delay values (1,500 â†’ 1500)
+            - Fixed encoding output (Latin-1 bytes for proper °F display)
+            - Comma stripping in delay values (1,500 → 1500)
             
             **v3.19** - Jan 2026
             - Enhanced unit extraction: Tag Prefix, Asset Parent, Asset Child options
@@ -2156,7 +2157,7 @@ def main():
             - Tag Prefix / Asset Path / Both options
             
             **v2.0** - Jan 2026
-            - Severity mapping fix (MINORâ†’D, etc.)
+            - Severity mapping fix (MINOR→D, etc.)
             - OnDelay, OffDelay, Deadband extraction
             - Freeport LNG client
             
@@ -2248,7 +2249,7 @@ Thanks,
         st.markdown(
             f'<a href="{email_link}" target="_blank">'
             f'<button style="width:100%; padding:10px; background-color:#4a6fa5; color:white; border:none; border-radius:5px; cursor:pointer;">'
-            f'ðŸ“§ Open Email to Report'
+            f'📧 Open Email to Report'
             f'</button></a>',
             unsafe_allow_html=True
         )
@@ -2257,7 +2258,7 @@ Thanks,
     # Header - dynamic based on client (now after sidebar so we have dcs_name and pha_tool)
     st.markdown(f"""
     <div class="main-header">
-        <h1>ðŸ”” Alarm Rationalization Platform</h1>
+        <h1>🔔 Alarm Rationalization Platform</h1>
         <p>Transform alarm management databases between {dcs_name} and {pha_tool}</p>
     </div>
     """, unsafe_allow_html=True)
@@ -2313,7 +2314,7 @@ Thanks,
                         units_by_prefix, units_by_asset_parent, units_by_asset_child = scan_for_units(file_content, selected_client)
                         
                         # Show unit detection results
-                        st.markdown("### ðŸ“Š Units Detected")
+                        st.markdown("### 📊 Units Detected")
                         
                         # For FLNG, show all methods and let user choose
                         if selected_client == "flng":
@@ -2359,7 +2360,7 @@ Thanks,
                                     "asset_child": f"Asset Path - Child ({len(units_by_asset_child)} units) - e.g., '17H-2' (detailed)"
                                 }[x],
                                 help="""
-**Tag Prefix**: Uses first 2 digits of tag name (e.g., 17TI5879 â†’ 17)
+**Tag Prefix**: Uses first 2 digits of tag name (e.g., 17TI5879 → 17)
 
 **Asset Path - Parent**: Uses the first level after /U##/ in the asset hierarchy. 
 This gives you consolidated units like 17_FLARE, 17_FGS, 17_ELEC.
@@ -2402,7 +2403,7 @@ Best when you need granular unit breakdown.
                 # ABB uses fixed unit from config - only show after file uploaded
                 if uploaded_file is not None:
                     unit_value = client_config.get('unit_value', 'Line 1')
-                    st.markdown(f"### ðŸ“Š Unit: **{unit_value}**")
+                    st.markdown(f"### 📊 Unit: **{unit_value}**")
                     st.markdown("---")
             
             source_file = None
@@ -2419,7 +2420,7 @@ Best when you need granular unit breakdown.
             parser_type = client_config.get("parser", "dynamo")
             if parser_type == "dynamo":
                 st.markdown("---")
-                st.markdown(f"**âš ï¸ Required: Original {dcs_name} export file**")
+                st.markdown(f"**⚠️ Required: Original {dcs_name} export file**")
                 st.caption("Client-specific values must be preserved from the original export.")
                 source_file = st.file_uploader(
                     f"Original {dcs_name} Export (REQUIRED)",
@@ -2428,14 +2429,14 @@ Best when you need granular unit breakdown.
                 )
                 
                 if uploaded_file is not None and source_file is None:
-                    st.warning(f"âš ï¸ Please upload the original {dcs_name} export file. Without it, default values will be used.")
+                    st.warning(f"⚠️ Please upload the original {dcs_name} export file. Without it, default values will be used.")
             else:
                 source_file = None
             
             unit_filter = None
     
     with col2:
-        st.markdown("### ðŸ“‹ Output Format")
+        st.markdown("### 📋 Output Format")
         
         parser_type = client_config.get("parser", "dynamo")
         
@@ -2478,7 +2479,7 @@ Best when you need granular unit breakdown.
         
         with col2:
             transform_clicked = st.button(
-                "ðŸš€ Transform",
+                "🚀 Transform",
                 use_container_width=True,
                 type="primary"
             )
@@ -2496,7 +2497,7 @@ Best when you need granular unit breakdown.
                 source_data = None
                 
                 if direction == "forward":
-                    with st.spinner("ðŸ”„ Transforming to PHA-Pro format..."):
+                    with st.spinner("📝„ Transforming to PHA-Pro format..."):
                         if parser_type == "abb":
                             # ABB uses Excel, read as bytes
                             raw_bytes = uploaded_file.read()
@@ -2531,7 +2532,7 @@ Best when you need granular unit breakdown.
                     
                 else:
                     # Reverse transformation - always CSV input
-                    with st.spinner("ðŸ”„ Loading and parsing files..."):
+                    with st.spinner("📝„ Loading and parsing files..."):
                         raw_bytes = uploaded_file.read()
                         file_content = None
                         for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
@@ -2579,7 +2580,7 @@ Best when you need granular unit breakdown.
                                 st.stop()
                     
                     # Now do the actual transformation with its own spinner
-                    with st.spinner(f"ðŸ”„ Transforming {len(source_data['rows']):,} alarm rows..."):
+                    with st.spinner(f"📝„ Transforming {len(source_data['rows']):,} alarm rows..."):
                         # Transform (merge PHA-Pro changes with original data)
                         output_csv, stats = transformer.transform_reverse(file_content, source_data)
                         output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
@@ -2587,12 +2588,12 @@ Best when you need granular unit breakdown.
                 # Show success (only after spinner completes)
                 st.markdown("""
                 <div class="status-success">
-                    <strong>âœ… Transformation Complete!</strong>
+                    <strong>✅ Transformation Complete!</strong>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Stats
-                st.markdown("### ðŸ“Š Results")
+                st.markdown("### 📊 Results")
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
@@ -2631,13 +2632,13 @@ Best when you need granular unit breakdown.
                 
                 # Show not_found warning if any
                 if stats.get('not_found', 0) > 0:
-                    st.warning(f"âš ï¸ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
+                    st.warning(f"⚠️ {stats['not_found']:,} alarms from original file were not found in PHA-Pro export (kept unchanged)")
                 
                 # Show skipped modes info with expandable explanation
                 if stats.get('skipped_modes', 0) > 0:
-                    st.info(f"â„¹ï¸ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
+                    st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
                     
-                    with st.expander("ðŸ” Click here to understand why rows were skipped"):
+                    with st.expander("📝 Click here to understand why rows were skipped"):
                         st.markdown("""
 ### What are "Modes" in DynAMo?
 
@@ -2667,7 +2668,7 @@ DynAMo uses **modes** to manage alarm configurations across different plant oper
 
 ### What this means for your output:
 
-- âœ… **{:,} alarm rows with mode=NORMAL** were processed and included in the output
+- ✅ **{:,} alarm rows with mode=NORMAL** were processed and included in the output
 - â­ï¸ **{:,} rows with other modes** were skipped (they exist in your source file but are not part of the active alarm configuration)
 
 The output file contains exactly one row per (tag, alarm type) combination, matching what DynAMo expects for a clean import.
@@ -2676,7 +2677,7 @@ The output file contains exactly one row per (tag, alarm type) combination, matc
                 # P&ID Review Note (only for forward transformation)
                 if direction == "forward":
                     st.warning("""
-âš ï¸ **P&ID Review Required**
+⚠️ **P&ID Review Required**
 
 Before importing to PHA-Pro, please review and consolidate P&ID references:
 - Tags without P&ID data are marked as "UNKNOWN"
@@ -2685,13 +2686,13 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
 """)
                 
                 # Download button
-                st.markdown("### ðŸ“¥ Download")
+                st.markdown("### 📥 Download")
                 
                 col_dl1, col_dl2 = st.columns(2)
                 
                 with col_dl1:
                     st.download_button(
-                        label=f"â¬‡ï¸ Download {output_filename}",
+                        label=f"⬇️ Download {output_filename}",
                         data=output_csv,
                         file_name=output_filename,
                         mime="text/csv",
@@ -2705,7 +2706,7 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                             change_report = transformer.generate_change_report(file_content, source_data)
                             report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
                             st.download_button(
-                                label="ðŸ“Š Download Change Report",
+                                label="📊 Download Change Report",
                                 data=change_report,
                                 file_name=report_filename,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2732,12 +2733,12 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                         
                         st.markdown("""
                         <div class="status-warning">
-                            <strong>âš ï¸ Missing Required Columns</strong><br>
+                            <strong>⚠️ Missing Required Columns</strong><br>
                             Your PHA-Pro export is missing columns needed for the DynAMo transformation.
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        st.markdown("### ðŸ“‹ Missing Columns")
+                        st.markdown("### 📋 Missing Columns")
                         st.markdown("Please rename or add the following columns in your PHA-Pro export file:")
                         
                         # Get column descriptions
@@ -2777,23 +2778,23 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
     st.markdown("---")
     
     # Privacy Notice
-    with st.expander("ðŸ”’ Privacy & Security"):
+    with st.expander("🔒 Privacy & Security"):
         st.markdown("""
         **Your data is secure.**
         
         **Access Control:**
-        - âœ… **Authentication required** - No anonymous access to the tool
-        - âœ… **Login protected** - Client names and functionality hidden until authenticated
+        - ✅ **Authentication required** - No anonymous access to the tool
+        - ✅ **Login protected** - Client names and functionality hidden until authenticated
         
         **Data Handling:**
-        - âœ… **No data storage** - Files exist only in memory during your session
-        - âœ… **No database** - Nothing is saved to any server
-        - âœ… **No logging** - File contents are never logged
-        - âœ… **Session isolation** - Your session is separate from other users
-        - âœ… **Memory cleared** - All data erased when you log out or close the tab
+        - ✅ **No data storage** - Files exist only in memory during your session
+        - ✅ **No database** - Nothing is saved to any server
+        - ✅ **No logging** - File contents are never logged
+        - ✅ **Session isolation** - Your session is separate from other users
+        - ✅ **Memory cleared** - All data erased when you log out or close the tab
         
         **In Transit:**
-        - âœ… **HTTPS encrypted** - All traffic is encrypted
+        - ✅ **HTTPS encrypted** - All traffic is encrypted
         
         **What is NOT exposed to the internet:**
         - âŒ Uploaded alarm data
@@ -2808,8 +2809,8 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
     
     st.markdown(
         "<div style='text-align: center; color: #6c757d; font-size: 0.85rem;'>"
-        "Alarm Rationalization Platform â€¢ Applied Engineering Solutions â€¢ "
-        f"Built with Streamlit â€¢ {datetime.now().year}"
+        "Alarm Rationalization Platform • Applied Engineering Solutions • "
+        f"Built with Streamlit • {datetime.now().year}"
         "</div>",
         unsafe_allow_html=True
     )
