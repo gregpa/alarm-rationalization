@@ -482,16 +482,20 @@ class AlarmTransformer:
                     }
                 elif schema_type == "_DCS":
                     schemas['_DCS'][tag_name] = {
+                        'engUnits': row[3] if len(row) > 3 else "",
                         'pointType': row[4] if len(row) > 4 else "",
                         'PVEUHI': row[5] if len(row) > 5 else "",
                         'PVEULO': row[6] if len(row) > 6 else "",
                         'desc': row[7] if len(row) > 7 else "",
+                        'unit': row[10] if len(row) > 10 else "",  # Full unit name from column 10
                     }
                 elif schema_type == "_Parameter":
+                    # Only store NORMAL mode parameters for forward transform
+                    mode = row[3] if len(row) > 3 else "Base"
                     if tag_name not in schemas['_Parameter']:
                         schemas['_Parameter'][tag_name] = []
                     schemas['_Parameter'][tag_name].append({
-                        'mode': row[3] if len(row) > 3 else "Base",
+                        'mode': mode,
                         'alarmType': row[5] if len(row) > 5 else "",
                         'value': row[7] if len(row) > 7 else "",
                         'priorityValue': row[10] if len(row) > 10 else "",
@@ -705,7 +709,7 @@ class AlarmTransformer:
         schemas = self.parse_dynamo_csv(file_content)
         
         rows = []
-        self.stats = {"tags": 0, "alarms": 0, "units": set()}
+        self.stats = {"tags": 0, "alarms": 0, "units": set(), "skipped_modes": 0}
         
         # Build tag list sorted by unit and name
         tags = []
@@ -718,23 +722,51 @@ class AlarmTransformer:
             if not params:
                 continue
             
-            point_type = dcs_data.get('pointType', '') or var_data.get('pointType', '')
-            unit = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
+            # Filter to NORMAL mode only
+            normal_params = [p for p in params if p.get('mode', '').upper() == 'NORMAL']
+            skipped = len(params) - len(normal_params)
+            self.stats["skipped_modes"] += skipped
             
-            if selected_units and unit not in selected_units:
+            if not normal_params:
                 continue
             
-            self.stats["units"].add(unit)
+            point_type = dcs_data.get('pointType', '') or var_data.get('pointType', '')
+            
+            # Use full unit from _DCS[10] if available, otherwise fall back to extraction
+            full_unit = dcs_data.get('unit', '')
+            if not full_unit:
+                full_unit = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
+            
+            # For unit filtering, extract the numeric part for comparison
+            unit_prefix = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
+            
+            if selected_units and unit_prefix not in selected_units:
+                continue
+            
+            self.stats["units"].add(full_unit or unit_prefix)
+            
+            # Get engineering units - prefer _DCS, fall back to _DCSVariable
+            eng_units = dcs_data.get('engUnits', '') or var_data.get('engUnits', '')
+            
+            # Clean range values (remove commas)
+            range_min = dcs_data.get('PVEULO', '0').replace(',', '')
+            range_max = dcs_data.get('PVEUHI', '1').replace(',', '')
+            
+            # P&ID - use "UNKNOWN" if not available
+            pid = notes.get('DocRef1', '')
+            if not pid or pid in ['~', '']:
+                pid = 'UNKNOWN'
             
             tags.append({
                 'tag_name': tag_name,
-                'unit': unit,
+                'unit': full_unit or unit_prefix,
                 'point_type': point_type,
                 'desc': dcs_data.get('desc', ''),
-                'range_min': dcs_data.get('PVEULO', '0'),
-                'range_max': dcs_data.get('PVEUHI', '1'),
-                'pid': notes.get('DocRef1', ''),
-                'params': params,
+                'eng_units': eng_units,
+                'range_min': range_min or '0',
+                'range_max': range_max or '1',
+                'pid': pid,
+                'params': normal_params,  # Only NORMAL mode params
             })
         
         # Sort by unit, then tag name
@@ -759,26 +791,45 @@ class AlarmTransformer:
                     param.get('DisabledValue', '')
                 )
                 
-                # Derive individual enable
+                # Derive individual alarm enable status
                 at_lower = param.get('alarmType', '').lower()
-                if 'controlfail' in at_lower:
-                    indiv_enable = "~"
-                elif at_lower.startswith('st') and param.get('DisabledValue'):
-                    indiv_enable = param.get('DisabledValue', '~').upper()
+                disabled_val = param.get('DisabledValue', '').upper()
+                
+                # ControlFail and certain discrete alarms use {n/a}
+                if self.is_discrete(param.get('alarmType', '')):
+                    if disabled_val == 'TRUE':
+                        indiv_enable = "Enabled"
+                    elif disabled_val == 'FALSE':
+                        indiv_enable = "Disabled"
+                    else:
+                        indiv_enable = "{n/a}"
                 else:
-                    indiv_enable = "~"
+                    # Analog alarms
+                    if disabled_val == 'TRUE':
+                        indiv_enable = "Enabled"
+                    elif disabled_val == 'FALSE':
+                        indiv_enable = "Disabled"
+                    else:
+                        indiv_enable = "{n/a}"
+                
+                # Clean limit value (remove commas, handle discrete)
+                limit_value = ""
+                if not self.is_discrete(param.get('alarmType', '')):
+                    raw_limit = param.get('value', '')
+                    if raw_limit and raw_limit not in ['~', '--------']:
+                        limit_value = raw_limit.replace(',', '')
                 
                 row = [
-                    tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",
+                    tag['unit'] if is_first_alarm_for_tag else "",
                     tag['tag_name'] if is_first_alarm_for_tag else "",
                     tag['desc'] or "~" if is_first_alarm_for_tag else "",
                     tag['desc'] or "~" if is_first_alarm_for_tag else "",
                     tag['pid'] if is_first_alarm_for_tag else "",
-                    tag['range_min'] or "0" if is_first_alarm_for_tag else "",
-                    tag['range_max'] or "1" if is_first_alarm_for_tag else "",
-                    "~" if is_first_alarm_for_tag else "",
+                    tag['range_min'] if is_first_alarm_for_tag else "",
+                    tag['range_max'] if is_first_alarm_for_tag else "",
+                    tag['eng_units'] or "~" if is_first_alarm_for_tag else "",
                     tag_source if is_first_alarm_for_tag else "",
-                    f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag else "",
+                    f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",
                     "Enabled" if is_first_alarm_for_tag else "",
                     "Enabled" if is_first_alarm_for_tag else "",
                     param.get('alarmType', ''),
@@ -786,8 +837,8 @@ class AlarmTransformer:
                     indiv_enable,
                     priority_code,
                     priority_code,
-                    param.get('value', '') if not self.is_discrete(param.get('alarmType', '')) else "",
-                    param.get('value', '') if not self.is_discrete(param.get('alarmType', '')) else "",
+                    limit_value,  # Old Limit
+                    limit_value,  # New Limit
                     self._clean_value(param.get('DeadBandValue', '')),  # Old Deadband
                     self._clean_value(param.get('DeadBandValue', '')),  # New Deadband (same as old)
                     self._clean_value(param.get('DeadBandUnitValue', '')),  # Old Deadband Units
@@ -818,7 +869,7 @@ class AlarmTransformer:
                 
                 rows.append(row)
                 
-                if is_first_tag_for_unit and is_first_alarm_for_tag:
+                if is_first_alarm_for_tag:
                     last_unit = tag['unit']
                 is_first_alarm_for_tag = False
         
@@ -2330,6 +2381,17 @@ DynAMo uses **modes** to manage alarm configurations across different plant oper
 
 The output file contains exactly one row per (tag, alarm type) combination, matching what DynAMo expects for a clean import.
                         """.format(stats['alarms'], stats['skipped_modes']))
+                
+                # P&ID Review Note (only for forward transformation)
+                if direction == "forward":
+                    st.warning("""
+⚠️ **P&ID Review Required**
+
+Before importing to PHA-Pro, please review and consolidate P&ID references:
+- Tags without P&ID data are marked as "UNKNOWN"
+- Verify P&ID assignments are correct for your facility
+- Consolidate P&ID naming conventions if needed
+""")
                 
                 # Download button
                 st.markdown("### 📥 Download")
