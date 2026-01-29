@@ -334,10 +334,48 @@ class AlarmTransformer:
             "parser": "dynamo",
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
+            # Tag source rules based on Point Type (from Honeywell_tag_info.xlsx reference)
+            # Evaluated in order - first match wins
             "tag_source_rules": [
-                {"prefix": "SM", "field": "point_type", "source": "Honeywell Safety Manager (SIS)", "enforcement": "R"},
+                # Safety Manager point types
+                {"prefix": "SM_", "field": "point_type", "source": "Honeywell Safety Manager", "enforcement": "R"},
+                {"exact": "SM", "field": "point_type", "source": "Honeywell Safety Manager", "enforcement": "R"},
+                # SCADA point types
+                {"exact": "ANA", "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
+                {"exact": "STA", "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
+                # Experion DCS point types
+                {"exact": "AUTOMAN", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "CAB", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "DATAACQ", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "DEVCTL", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "DIGACQ", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "FANOUT", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "FLAG/CONTACTMON", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "FLOWCOMP", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "OVRDSEL", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "PID", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "PID-PL", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "PIDFF", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "RATIOCTL", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "REGCALC", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "REMCAS", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "SIGNALSEL", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "SWITCH", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                {"exact": "TOTALIZER", "field": "point_type", "source": "Honeywell Experion (DCS)", "enforcement": "M"},
+                # TDC point types
+                {"exact": "ANALGIN", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "CUSTOMAM", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "DIGCOM", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "DIGIN", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "FLAGAM", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "LOGIC", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "REGAM", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "REGCTL", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "REGLATRY", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "REGPV", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
+                {"exact": "SWITCHAM", "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
             ],
-            "default_source": "Honeywell Experion (DCS)",
+            "default_source": "Honeywell TDC (DCS)",
             "empty_mode_is_valid": True,
             "phapro_headers": "HFS",
             "areas": {
@@ -591,7 +629,7 @@ class AlarmTransformer:
             method: Override method - "tag_prefix", "asset_parent", "asset_child" (optional)
         
         Returns:
-            Unit string, or empty string if not found.
+            Unit string. Returns "00" if no unit found (for TAG_PREFIX method).
         
         Methods:
             - tag_prefix: First digits of tag name (e.g., "17" from "17TI5879")
@@ -613,6 +651,10 @@ class AlarmTransformer:
                     break
             elif unit_from_prefix:
                 break
+        
+        # If no digits found at start of tag, use "00" as default unit
+        if not unit_from_prefix:
+            unit_from_prefix = "00"
         
         # Extract parent and child units from asset path
         unit_parent = ""
@@ -643,31 +685,43 @@ class AlarmTransformer:
         if use_method == "TAG_PREFIX":
             return unit_from_prefix
         elif use_method == "ASSET_PARENT":
-            return unit_parent
+            return unit_parent if unit_parent else "00"
         elif use_method == "ASSET_CHILD":
-            return unit_child if unit_child else unit_parent
+            return unit_child if unit_child else (unit_parent if unit_parent else "00")
         elif use_method == "ASSET_PATH":
             # Legacy - use parent
-            return unit_parent
+            return unit_parent if unit_parent else "00"
         elif use_method == "BOTH":
             # Both tag prefix and asset parent must match
             if unit_from_prefix and unit_parent and unit_from_prefix in unit_parent:
                 return unit_parent
-            return ""
+            return "00"
         
         return unit_from_prefix  # default fallback
     
     def derive_tag_source(self, tag_name: str, point_type: str) -> Tuple[str, str]:
         """Derive tag source and enforcement from rules."""
+        pt_upper = point_type.upper() if point_type else ""
+        
         for rule in self.config.get("tag_source_rules", []):
-            if "prefix" in rule and rule["field"] == "point_type":
-                if point_type.upper().startswith(rule["prefix"]):
+            field = rule.get("field", "point_type")
+            check_value = pt_upper if field == "point_type" else tag_name
+            
+            # Exact match
+            if "exact" in rule:
+                if check_value == rule["exact"].upper():
                     return rule["source"], rule.get("enforcement", "M")
-            if "contains" in rule and rule["field"] == "tag_name":
-                if rule["contains"] in tag_name:
+            # Prefix match
+            elif "prefix" in rule:
+                if check_value.startswith(rule["prefix"].upper()):
                     return rule["source"], rule.get("enforcement", "M")
-            if "in" in rule and rule["field"] == "point_type":
-                if point_type.upper() in rule["in"]:
+            # Contains match
+            elif "contains" in rule:
+                if rule["contains"] in check_value:
+                    return rule["source"], rule.get("enforcement", "M")
+            # In list match
+            elif "in" in rule:
+                if check_value in [v.upper() for v in rule["in"]]:
                     return rule["source"], rule.get("enforcement", "M")
         
         return self.config.get("default_source", "Unknown"), "M"
@@ -892,12 +946,19 @@ class AlarmTransformer:
             
             # Get engineering units - prefer _DCS, fall back to _DCSVariable
             # Apply encoding fix for degree symbol and other characters
+            # Leave blank if ~ or empty (don't use placeholder values)
             eng_units = dcs_data.get('engUnits', '') or var_data.get('engUnits', '')
             eng_units = self._fix_encoding(eng_units)
+            if eng_units in ['~', '-', '']:
+                eng_units = ''
             
-            # Clean range values (remove commas)
-            range_min = dcs_data.get('PVEULO', '0').replace(',', '')
-            range_max = dcs_data.get('PVEUHI', '1').replace(',', '')
+            # Clean range values - leave blank if ~ or empty or -------- (don't use default 0/1)
+            range_min = dcs_data.get('PVEULO', '').replace(',', '')
+            range_max = dcs_data.get('PVEUHI', '').replace(',', '')
+            if range_min in ['~', '-', '--------', '']:
+                range_min = ''
+            if range_max in ['~', '-', '--------', '']:
+                range_max = ''
             
             # P&ID - use "UNKNOWN" if not available
             pid = notes.get('DocRef1', '')
@@ -910,8 +971,8 @@ class AlarmTransformer:
                 'point_type': point_type,
                 'desc': self._fix_encoding(dcs_data.get('desc', '')),
                 'eng_units': eng_units,
-                'range_min': range_min or '0',
-                'range_max': range_max or '1',
+                'range_min': range_min,
+                'range_max': range_max,
                 'pid': pid,
                 'params': normal_params,  # Only NORMAL mode params
             })
@@ -978,12 +1039,12 @@ class AlarmTransformer:
                         tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",  # 1. Unit
                         tag['tag_name'] if is_first_alarm_for_tag else "",  # 2. Starting Tag Name
                         tag['tag_name'] if is_first_alarm_for_tag else "",  # 3. New Tag Name
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # 4. Old Tag Description
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # 5. New Tag Description
+                        tag['desc'] if is_first_alarm_for_tag else "",  # 4. Old Tag Description
+                        tag['desc'] if is_first_alarm_for_tag else "",  # 5. New Tag Description
                         tag['pid'] if is_first_alarm_for_tag else "",  # 6. P&ID
                         tag['range_min'] if is_first_alarm_for_tag else "",  # 7. Range Min
                         tag['range_max'] if is_first_alarm_for_tag else "",  # 8. Range Max
-                        tag['eng_units'] or "~" if is_first_alarm_for_tag else "",  # 9. Engineering Units
+                        tag['eng_units'] if is_first_alarm_for_tag else "",  # 9. Engineering Units
                         tag_source if is_first_alarm_for_tag else "",  # 10. Tag Source
                         f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",  # 11. Rationalization (Tag) Comment
                         "Enabled" if is_first_alarm_for_tag else "",  # 12. Old Tag Enable Status
