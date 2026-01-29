@@ -342,24 +342,6 @@ class AlarmTransformer:
             "phapro_headers": "HFS",
             "areas": {
                 "north_console": {"name": "North Console", "description": "North Console Area"},
-                "unit_01": {"name": "Unit 01", "description": "Unit 01"},
-                "unit_05": {"name": "Unit 05", "description": "Unit 05"},
-                "unit_06": {"name": "Unit 06", "description": "Unit 06"},
-                "unit_07": {"name": "Unit 07", "description": "Unit 07"},
-                "unit_08": {"name": "Unit 08", "description": "Unit 08"},
-                "unit_11": {"name": "Unit 11", "description": "Unit 11"},
-                "unit_12": {"name": "Unit 12", "description": "Unit 12"},
-                "unit_13": {"name": "Unit 13", "description": "Unit 13"},
-                "unit_15": {"name": "Unit 15", "description": "Unit 15"},
-                "unit_19": {"name": "Unit 19", "description": "Unit 19"},
-                "unit_20": {"name": "Unit 20", "description": "Unit 20"},
-                "unit_23": {"name": "Unit 23", "description": "Unit 23"},
-                "unit_29": {"name": "Unit 29", "description": "Unit 29"},
-                "unit_30": {"name": "Unit 30", "description": "Unit 30"},
-                "unit_31": {"name": "Unit 31", "description": "Unit 31"},
-                "unit_37": {"name": "Unit 37", "description": "Unit 37"},
-                "unit_39": {"name": "Unit 39", "description": "Unit 39"},
-                "unit_55": {"name": "Unit 55", "description": "Unit 55"},
             },
             "default_area": "north_console",
         },
@@ -2334,8 +2316,8 @@ Thanks,
                         # Show unit detection results
                         st.markdown("### 📊 Units Detected")
                         
-                        # For FLNG, show all methods and let user choose
-                        if selected_client == "flng":
+                        # For DynAMo clients, show all methods and let user choose
+                        if parser_type == "dynamo":
                             col_a, col_b, col_c = st.columns(3)
                             
                             with col_a:
@@ -2398,10 +2380,7 @@ Best when you need granular unit breakdown.
                                 available_units = units_by_asset_parent
                             else:
                                 available_units = units_by_asset_child
-                        else:
-                            # For other clients, just show detected units
-                            available_units = units_by_prefix
-                            st.markdown(f"**Available Units:** {', '.join(sorted(available_units, key=lambda x: (len(x), x))) if available_units else 'None detected'}")
+                        # Note: ABB clients don't reach this code path (they use fixed units)
                         
                         st.markdown("---")
                 
@@ -2415,7 +2394,7 @@ Best when you need granular unit breakdown.
                 # Store the method choice in session state for use during transform
                 if 'unit_method_choice' not in st.session_state:
                     st.session_state.unit_method_choice = "tag_prefix"
-                if uploaded_file is not None and selected_client == "flng":
+                if uploaded_file is not None and parser_type == "dynamo":
                     st.session_state.unit_method_choice = unit_method_choice
             else:
                 # ABB uses fixed unit from config - only show after file uploaded
