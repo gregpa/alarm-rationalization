@@ -520,16 +520,20 @@ class AlarmTransformer:
         return schemas
     
     def extract_unit(self, tag_name: str, asset_path: str = "", method: str = None) -> str:
-        """Extract unit number from tag name or asset path.
+        """Extract unit from tag name or asset path.
         
         Args:
             tag_name: The tag name
             asset_path: The asset path (optional)
-            method: Override method - "tag_prefix", "asset_path", or "both" (optional)
+            method: Override method - "tag_prefix", "asset_parent", "asset_child" (optional)
         
         Returns:
             Unit string, or empty string if not found.
-            For "both" method, returns unit only if both methods agree.
+        
+        Methods:
+            - tag_prefix: First digits of tag name (e.g., "17" from "17TI5879")
+            - asset_parent: First level after /U##/ (e.g., "17_FLARE" from /U17/17_FLARE/17H-2)
+            - asset_child: Last level in path (e.g., "17H-2" from /U17/17_FLARE/17H-2)
         """
         import re
         
@@ -547,26 +551,45 @@ class AlarmTransformer:
             elif unit_from_prefix:
                 break
         
-        # Extract unit from asset path
-        unit_from_asset = ""
+        # Extract parent and child units from asset path
+        unit_parent = ""
+        unit_child = ""
         if asset_path:
+            # Parse asset path: /Assets/LQF/U17/17_FLARE/17H-2
             match = re.search(r'/U(\d+)/', asset_path, re.IGNORECASE)
             if match:
-                unit_from_asset = match.group(1)
-            else:
-                match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
-                if match:
-                    unit_from_asset = match.group(1)
+                # Get everything after /U##/
+                u_pos = match.end()
+                remaining = asset_path[u_pos:]
+                
+                # Split by /
+                parts = [p for p in remaining.split('/') if p]
+                
+                if len(parts) >= 1:
+                    # Parent unit is first level after U##
+                    unit_parent = parts[0]
+                
+                if len(parts) >= 2:
+                    # Child unit is last level
+                    unit_child = parts[-1]
+                elif len(parts) == 1:
+                    # No child level, parent is also the "child"
+                    unit_child = parts[0]
         
         # Return based on method
         if use_method == "TAG_PREFIX":
             return unit_from_prefix
+        elif use_method == "ASSET_PARENT":
+            return unit_parent
+        elif use_method == "ASSET_CHILD":
+            return unit_child if unit_child else unit_parent
         elif use_method == "ASSET_PATH":
-            return unit_from_asset
+            # Legacy - use parent
+            return unit_parent
         elif use_method == "BOTH":
-            # Both must match and be non-empty
-            if unit_from_prefix and unit_from_asset and unit_from_prefix == unit_from_asset:
-                return unit_from_prefix
+            # Both tag prefix and asset parent must match
+            if unit_from_prefix and unit_parent and unit_from_prefix in unit_parent:
+                return unit_parent
             return ""
         
         return unit_from_prefix  # default fallback
@@ -731,19 +754,37 @@ class AlarmTransformer:
                 continue
             
             point_type = dcs_data.get('pointType', '') or var_data.get('pointType', '')
+            asset_path = var_data.get('assetPath', '')
             
-            # Use full unit from _DCS[10] if available, otherwise fall back to extraction
-            full_unit = dcs_data.get('unit', '')
-            if not full_unit:
-                full_unit = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
+            # Extract unit based on selected method
+            extracted_unit = self.extract_unit(tag_name, asset_path, unit_method)
             
-            # For unit filtering, extract the numeric part for comparison
-            unit_prefix = self.extract_unit(tag_name, var_data.get('assetPath', ''), unit_method)
+            # For backward compatibility, also check _DCS[10] if method is asset_child
+            dcs_unit = dcs_data.get('unit', '')
             
-            if selected_units and unit_prefix not in selected_units:
-                continue
+            # Determine final unit based on method
+            if unit_method and unit_method.upper() == "ASSET_PARENT":
+                # Use parent unit from asset path extraction
+                final_unit = extracted_unit
+            elif unit_method and unit_method.upper() == "ASSET_CHILD":
+                # Prefer _DCS[10] if available (it's the most specific), otherwise use extraction
+                final_unit = dcs_unit if dcs_unit else extracted_unit
+            else:
+                # Tag prefix or default
+                final_unit = extracted_unit
             
-            self.stats["units"].add(full_unit or unit_prefix)
+            # For unit filtering with asset methods, we need to check if selected_units 
+            # matches either the extracted unit or is contained in it
+            if selected_units:
+                match_found = False
+                for sel_unit in selected_units:
+                    if sel_unit == final_unit or sel_unit in final_unit or final_unit in sel_unit:
+                        match_found = True
+                        break
+                if not match_found:
+                    continue
+            
+            self.stats["units"].add(final_unit)
             
             # Get engineering units - prefer _DCS, fall back to _DCSVariable
             eng_units = dcs_data.get('engUnits', '') or var_data.get('engUnits', '')
@@ -759,7 +800,7 @@ class AlarmTransformer:
             
             tags.append({
                 'tag_name': tag_name,
-                'unit': full_unit or unit_prefix,
+                'unit': final_unit,
                 'point_type': point_type,
                 'desc': dcs_data.get('desc', ''),
                 'eng_units': eng_units,
@@ -1699,12 +1740,15 @@ class AlarmTransformer:
 # HELPER FUNCTIONS
 # ============================================================
 
-def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set]:
+def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set, set]:
     """
-    Scan a DynAMo file and extract available units using both methods.
+    Scan a DynAMo file and extract available units using multiple methods.
     
     Returns:
-        Tuple of (units_by_tag_prefix, units_by_asset_path)
+        Tuple of (units_by_tag_prefix, units_by_asset_parent, units_by_asset_child)
+        - units_by_tag_prefix: First digits of tag name (e.g., "17" from "17TI5879")
+        - units_by_asset_parent: First level after U## (e.g., "17_FLARE" from /U17/17_FLARE/17H-2)
+        - units_by_asset_child: Last level before tag (e.g., "17H-2" from /U17/17_FLARE/17H-2)
     """
     import re
     
@@ -1712,7 +1756,8 @@ def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set]:
     reader = csv.reader(lines)
     
     units_by_prefix = set()
-    units_by_asset = set()
+    units_by_asset_parent = set()
+    units_by_asset_child = set()
     
     # Get config for unit extraction
     config = AlarmTransformer.CLIENT_CONFIGS.get(client_id, AlarmTransformer.CLIENT_CONFIGS["flng"])
@@ -1739,20 +1784,36 @@ def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set]:
                 if unit:
                     units_by_prefix.add(unit)
                 
-                # Extract unit from asset path
+                # Extract units from asset path
                 asset_path = row[3] if len(row) > 3 else ""
                 if asset_path:
-                    # Look for /Uxx/ or /Unitxx/ pattern
+                    # Parse asset path: /Assets/LQF/U17/17_FLARE/17H-2
+                    # We want: parent = 17_FLARE, child = 17H-2
+                    
+                    # Find the U## level first
                     match = re.search(r'/U(\d+)/', asset_path, re.IGNORECASE)
                     if match:
-                        units_by_asset.add(match.group(1))
-                    else:
-                        # Try other patterns like /Unit67/
-                        match = re.search(r'/Unit\s*(\d+)/', asset_path, re.IGNORECASE)
-                        if match:
-                            units_by_asset.add(match.group(1))
+                        # Get everything after /U##/
+                        u_pos = match.end()
+                        remaining = asset_path[u_pos:]
+                        
+                        # Split by /
+                        parts = [p for p in remaining.split('/') if p]
+                        
+                        if len(parts) >= 1:
+                            # Parent unit is first level after U##
+                            units_by_asset_parent.add(parts[0])
+                        
+                        if len(parts) >= 2:
+                            # Child unit is last level (if different from parent)
+                            child = parts[-1]
+                            if child != parts[0]:
+                                units_by_asset_child.add(child)
+                        elif len(parts) == 1:
+                            # No child, just parent (tag is directly under parent)
+                            pass
     
-    return units_by_prefix, units_by_asset
+    return units_by_prefix, units_by_asset_parent, units_by_asset_child
 
 
 # ============================================================
@@ -2048,15 +2109,15 @@ Thanks,
                             continue
                     
                     if file_content:
-                        # Extract units using both methods
-                        units_by_prefix, units_by_asset = scan_for_units(file_content, selected_client)
+                        # Extract units using all methods
+                        units_by_prefix, units_by_asset_parent, units_by_asset_child = scan_for_units(file_content, selected_client)
                         
                         # Show unit detection results
                         st.markdown("### 📊 Units Detected")
                         
-                        # For FLNG, show both methods and let user choose
+                        # For FLNG, show all methods and let user choose
                         if selected_client == "flng":
-                            col_a, col_b = st.columns(2)
+                            col_a, col_b, col_c = st.columns(3)
                             
                             with col_a:
                                 st.markdown("**By Tag Prefix:**")
@@ -2066,28 +2127,58 @@ Thanks,
                                     st.write("None found")
                             
                             with col_b:
-                                st.markdown("**By Asset Path:**")
-                                if units_by_asset:
-                                    st.code(", ".join(sorted(units_by_asset, key=lambda x: (len(x), x))))
+                                st.markdown("**By Asset Path (Parent):**")
+                                if units_by_asset_parent:
+                                    # Sort and display
+                                    sorted_parents = sorted(units_by_asset_parent)
+                                    st.code(", ".join(sorted_parents[:10]) + ("..." if len(sorted_parents) > 10 else ""))
+                                    if len(sorted_parents) > 10:
+                                        with st.expander(f"Show all {len(sorted_parents)} units"):
+                                            st.code(", ".join(sorted_parents))
                                 else:
                                     st.write("None found")
                             
-                            # Let user choose method if they differ
-                            if units_by_prefix != units_by_asset:
-                                unit_method_choice = st.radio(
-                                    "Which unit extraction method should be used?",
-                                    options=["tag_prefix", "asset_path", "both"],
-                                    format_func=lambda x: {
-                                        "tag_prefix": "Tag Prefix (first digits of tag name)",
-                                        "asset_path": "Asset Path (from /Uxx/ in path)",
-                                        "both": "Both (tag must match both methods)"
-                                    }[x],
-                                    help="Tag Prefix: Uses first 2 digits of tag name (e.g., 67FIC0101 → Unit 67)\nAsset Path: Uses unit from asset hierarchy (e.g., /Assets/U67/ → Unit 67)\nBoth: Tag must have matching unit in both tag name AND asset path",
-                                    horizontal=True
-                                )
+                            with col_c:
+                                st.markdown("**By Asset Path (Child):**")
+                                if units_by_asset_child:
+                                    sorted_children = sorted(units_by_asset_child)
+                                    st.code(", ".join(sorted_children[:10]) + ("..." if len(sorted_children) > 10 else ""))
+                                    if len(sorted_children) > 10:
+                                        with st.expander(f"Show all {len(sorted_children)} units"):
+                                            st.code(", ".join(sorted_children))
+                                else:
+                                    st.write("None found")
+                            
+                            # Let user choose method
+                            unit_method_choice = st.radio(
+                                "Which unit extraction method should be used?",
+                                options=["tag_prefix", "asset_parent", "asset_child"],
+                                format_func=lambda x: {
+                                    "tag_prefix": f"Tag Prefix ({len(units_by_prefix)} units) - e.g., '17' from '17TI5879'",
+                                    "asset_parent": f"Asset Path - Parent ({len(units_by_asset_parent)} units) - e.g., '17_FLARE' (consolidated)",
+                                    "asset_child": f"Asset Path - Child ({len(units_by_asset_child)} units) - e.g., '17H-2' (detailed)"
+                                }[x],
+                                help="""
+**Tag Prefix**: Uses first 2 digits of tag name (e.g., 17TI5879 → 17)
+
+**Asset Path - Parent**: Uses the first level after /U##/ in the asset hierarchy. 
+This gives you consolidated units like 17_FLARE, 17_FGS, 17_ELEC.
+Best for PHA-Pro import when you want fewer, larger unit groupings.
+
+**Asset Path - Child**: Uses the last level in the asset hierarchy.
+This gives you detailed units like 17H-2, 17IB-02, 17Z-50A.
+Best when you need granular unit breakdown.
+""",
+                                horizontal=True
+                            )
                             
                             # Show the units for selected method
-                            available_units = units_by_prefix if unit_method_choice == "tag_prefix" else units_by_asset
+                            if unit_method_choice == "tag_prefix":
+                                available_units = units_by_prefix
+                            elif unit_method_choice == "asset_parent":
+                                available_units = units_by_asset_parent
+                            else:
+                                available_units = units_by_asset_child
                         else:
                             # For other clients, just show detected units
                             available_units = units_by_prefix
