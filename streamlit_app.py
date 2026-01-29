@@ -115,7 +115,7 @@ def check_password():
         with col_b:
             st.markdown(
                 '<p style="text-align: center; color: #6c757d; font-size: 0.85rem;">'
-                'ðŸ“ <a href="mailto:greg.pajak@aesolutions.com?subject=Access%20Request%20-%20Alarm%20Rationalization%20Platform&body=Hi%20Greg%2C%0A%0AI%20would%20like%20to%20request%20access%20to%20the%20Alarm%20Rationalization%20Platform.%0A%0AName%3A%20%0ACompany%3A%20%0AReason%20for%20access%3A%20%0A%0AThanks">Request access</a>'
+                '📝 <a href="mailto:greg.pajak@aesolutions.com?subject=Access%20Request%20-%20Alarm%20Rationalization%20Platform&body=Hi%20Greg%2C%0A%0AI%20would%20like%20to%20request%20access%20to%20the%20Alarm%20Rationalization%20Platform.%0A%0AName%3A%20%0ACompany%3A%20%0AReason%20for%20access%3A%20%0A%0AThanks">Request access</a>'
                 '</p>',
                 unsafe_allow_html=True
             )
@@ -1974,7 +1974,7 @@ def main():
         # Logout button at top of sidebar - small and subtle
         st.markdown(
             f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">'
-            f'<span style="font-size: 0.9rem;">ðŸ‘¤ {st.session_state.get("username", "User")}</span>'
+            f'<span style="font-size: 0.9rem;">👤 {st.session_state.get("username", "User")}</span>'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -2100,7 +2100,7 @@ def main():
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
         
-        with st.expander("ðŸ“ Version History"):
+        with st.expander("📝 Version History"):
             st.markdown("""
             **v3.22** - Jan 2026
             - Fixed Unit column: only shows on first row of each unit group (not every tag)
@@ -2168,7 +2168,7 @@ def main():
         
         # Bug/Feature Report Button
         st.markdown("---")
-        st.markdown("### ðŸ› Report Issue")
+        st.markdown("### 🐛 Report Issue")
         
         report_type = st.selectbox(
             "What would you like to report?",
@@ -2256,10 +2256,10 @@ Thanks,
         st.caption("Attach files/screenshots in your email client")
     
     # Header - dynamic based on client (now after sidebar so we have dcs_name and pha_tool)
-    st.markdown(f"""
+    st.markdown("""
     <div class="main-header">
         <h1>🔔 Alarm Rationalization Platform</h1>
-        <p>Transform alarm management databases between {dcs_name} and {pha_tool}</p>
+        <p>Transform alarm management databases between DCS and PHA-Pro formats</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -2267,7 +2267,7 @@ Thanks,
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.markdown("### ðŸ“ Upload Files")
+        st.markdown("### 📁 Upload Files")
         
         if direction == "forward":
             # Determine file types based on client parser
@@ -2284,9 +2284,9 @@ Thanks,
                 unit_filter = ""
                 unit_method_choice = "fixed"
             else:
-                st.info(f"Upload your {dcs_name} database export CSV file")
+                st.info("Upload your alarm database export CSV file")
                 uploaded_file = st.file_uploader(
-                    f"{dcs_name} Export CSV",
+                    "Alarm Database Export CSV",
                     type=['csv'],
                     help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas"
                 )
@@ -2716,7 +2716,7 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                             st.warning(f"Could not generate change report: {report_error}")
                 
                 # Preview
-                with st.expander("ðŸ‘ï¸ Preview Output (first 20 rows)"):
+                with st.expander("👁️ Preview Output (first 20 rows)"):
                     # Handle both bytes and string output
                     if isinstance(output_csv, bytes):
                         preview_df = pd.read_csv(io.BytesIO(output_csv), nrows=20, encoding='latin-1')
@@ -2761,7 +2761,7 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                         4. Save and re-upload the file
                         """)
                         
-                        st.info("ðŸ’¡ **Note:** Column names must match exactly, including capitalization and special characters like parentheses.")
+                        st.info("💡 **Note:** Column names must match exactly, including capitalization and special characters like parentheses.")
                     else:
                         st.error(f"Error during transformation: {error_msg}")
                         st.exception(e)
@@ -2769,7 +2769,7 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
     else:
         st.markdown("""
         <div class="status-info">
-            <strong>ðŸ‘† Upload a file to get started</strong><br>
+            <strong>👆 Upload a file to get started</strong><br>
             Select your client profile and transformation direction in the sidebar, then upload your CSV file.
         </div>
         """, unsafe_allow_html=True)
