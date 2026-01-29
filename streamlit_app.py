@@ -2478,16 +2478,89 @@ Best when you need granular unit breakdown.
     
     st.markdown("---")
     
-    # Transform button
+    # Column verification and Transform button
     if uploaded_file is not None:
+        # Get the appropriate headers for this client/direction
+        parser_type = client_config.get("parser", "dynamo")
+        temp_transformer = AlarmTransformer(selected_client, selected_area)
+        
+        if direction == "forward":
+            # Forward: Show output columns that will be generated
+            st.markdown("### ✅ Verify PHA-Pro Column Format")
+            st.info("**Before transforming**, verify that your PHA-Pro template expects these columns in this exact order.")
+            
+            expected_headers = temp_transformer.get_phapro_headers()
+            
+            with st.expander(f"📋 View Expected PHA-Pro Output Columns ({len(expected_headers)} columns)", expanded=False):
+                # Create a DataFrame for nice display
+                col_df = pd.DataFrame({
+                    "#": range(1, len(expected_headers) + 1),
+                    "Column Name": expected_headers
+                })
+                st.dataframe(col_df, use_container_width=True, hide_index=True, height=400)
+                
+                # Copy-friendly version
+                st.markdown("**Copy-friendly list:**")
+                st.code(",".join(expected_headers), language=None)
+            
+            columns_confirmed = st.checkbox(
+                "I confirm these columns match my PHA-Pro import template",
+                key="forward_columns_confirmed"
+            )
+            
+        else:
+            # Reverse: Show required input columns from PHA-Pro export
+            st.markdown("### ✅ Verify PHA-Pro Export Columns")
+            st.info("**Before transforming**, verify that your PHA-Pro export file contains these required columns.")
+            
+            # Get required columns for reverse transform
+            required_cols = temp_transformer.get_required_columns_info()
+            expected_headers = temp_transformer.get_phapro_headers()
+            
+            with st.expander(f"📋 View Required PHA-Pro Input Columns ({len(expected_headers)} columns)", expanded=False):
+                # Show all expected headers
+                col_df = pd.DataFrame({
+                    "#": range(1, len(expected_headers) + 1),
+                    "Column Name": expected_headers
+                })
+                st.dataframe(col_df, use_container_width=True, hide_index=True, height=400)
+                
+                st.markdown("---")
+                st.markdown("**Key columns used for transformation:**")
+                for col_name, purpose in required_cols.items():
+                    st.markdown(f"- **{col_name}**: {purpose}")
+                
+                # Copy-friendly version
+                st.markdown("---")
+                st.markdown("**Copy-friendly list:**")
+                st.code(",".join(expected_headers), language=None)
+            
+            columns_confirmed = st.checkbox(
+                "I confirm my PHA-Pro export has these columns",
+                key="reverse_columns_confirmed"
+            )
+        
+        st.markdown("")
+        
         col1, col2, col3 = st.columns([1, 1, 1])
         
         with col2:
-            transform_clicked = st.button(
-                "🚀 Transform",
-                use_container_width=True,
-                type="primary"
-            )
+            # Only enable Transform if columns are confirmed
+            if columns_confirmed:
+                transform_clicked = st.button(
+                    "🚀 Transform",
+                    use_container_width=True,
+                    type="primary"
+                )
+            else:
+                st.button(
+                    "🚀 Transform",
+                    use_container_width=True,
+                    type="primary",
+                    disabled=True
+                )
+                st.caption("☝️ Please verify columns above before transforming")
+                transform_clicked = False
         
         if transform_clicked:
             try:
