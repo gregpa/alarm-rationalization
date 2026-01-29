@@ -1913,9 +1913,14 @@ def main():
                 **Forward Transformation ({dcs_name} → {pha_tool})**
                 1. Export your alarm database from {dcs_name} as CSV
                 2. Upload the CSV file below
-                3. Select units to process (optional)
-                4. Click Transform
-                5. Download the {pha_tool} import file
+                3. **Select unit extraction method:**
+                   - *Tag Prefix*: Uses first digits of tag name (e.g., "17" from "17TI5879")
+                   - *Asset Parent*: Consolidated units from asset path (e.g., "17_FLARE") - **Recommended for PHA-Pro**
+                   - *Asset Child*: Detailed units from asset path (e.g., "17H-2")
+                4. Select units to process (optional)
+                5. Click Transform
+                6. Download the {pha_tool} import file
+                7. **Review P&ID assignments** before importing to {pha_tool}
                 
                 **Reverse Transformation ({pha_tool} → {dcs_name})**
                 1. Export from {pha_tool} MADB as CSV
@@ -1951,13 +1956,31 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 3.17  
+        **Version:** 3.21  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
         
         with st.expander("📝 Version History"):
             st.markdown("""
+            **v3.21** - Jan 2026
+            - Fixed encoding output (Latin-1 bytes for proper °F display)
+            - Comma stripping in delay values (1,500 → 1500)
+            
+            **v3.19** - Jan 2026
+            - Enhanced unit extraction: Tag Prefix, Asset Parent, Asset Child options
+            - Asset Parent gives consolidated units (17_FLARE, 17_FGS, etc.)
+            - Asset Child gives detailed units (17H-2, 17IB-02, etc.)
+            
+            **v3.18** - Jan 2026
+            - Forward transform: Mode filtering (NORMAL only)
+            - Forward transform: Full unit from _DCS[10]
+            - Forward transform: Engineering units from _DCS[3]
+            - Forward transform: Range Max comma removal
+            - Forward transform: P&ID "UNKNOWN" default
+            - Forward transform: {n/a} for discrete alarm enable status
+            - P&ID review warning after forward transform
+            
             **v3.17** - Jan 2026
             - Fixed UI timing (spinner completes before success message)
             - Change Report Excel export with formatting
