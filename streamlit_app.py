@@ -2035,12 +2035,12 @@ def main():
         
         st.markdown("---")
         
-        # Transformation direction with dynamic labels
+        # Transformation direction with generic labels
         direction = st.radio(
             "Transformation Direction",
             options=["forward", "reverse"],
-            format_func=lambda x: f"{dcs_name} → {pha_tool}" if x == "forward" else f"{pha_tool} → {dcs_name}",
-            help=f"Forward: Create {pha_tool} import from {dcs_name} export\nReverse: Create {dcs_name} import from {pha_tool} export"
+            format_func=lambda x: "Alarm Database → PHA-Pro" if x == "forward" else "PHA-Pro → Alarm Database",
+            help="Forward: Create PHA-Pro import from alarm database export\nReverse: Create alarm database import from PHA-Pro export"
         )
         
         st.markdown("---")
