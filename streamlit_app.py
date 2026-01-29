@@ -684,6 +684,7 @@ class AlarmTransformer:
             'low': ('L', 'Alarm'),
             'journal': ('J', 'Event'),
             'none': ('N', 'None'),
+            'noaction': ('NA', 'None'),  # HFS specific
         }
         
         code, status = mapping.get(p, ('N', 'None'))
@@ -928,7 +929,9 @@ class AlarmTransformer:
             is_first_alarm_for_tag = True
             
             for param in tag['params']:
-                if not param.get('alarmType'):
+                alarm_type = param.get('alarmType', '').strip()
+                # Skip rows with no alarm type or placeholder values
+                if not alarm_type or alarm_type in ['~', '-', '']:
                     continue
                 
                 self.stats["alarms"] += 1
