@@ -897,7 +897,7 @@ class AlarmTransformer:
                         limit_value = raw_limit.replace(',', '')
                 
                 row = [
-                    tag['unit'] if is_first_alarm_for_tag else "",
+                    tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",
                     tag['tag_name'] if is_first_alarm_for_tag else "",
                     tag['desc'] or "~" if is_first_alarm_for_tag else "",
                     tag['desc'] or "~" if is_first_alarm_for_tag else "",
@@ -1956,13 +1956,16 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 3.21  
+        **Version:** 3.22  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
         
         with st.expander("📝 Version History"):
             st.markdown("""
+            **v3.22** - Jan 2026
+            - Fixed Unit column: only shows on first row of each unit group (not every tag)
+            
             **v3.21** - Jan 2026
             - Fixed encoding output (Latin-1 bytes for proper °F display)
             - Comma stripping in delay values (1,500 → 1500)
