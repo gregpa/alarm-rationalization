@@ -10,6 +10,9 @@ import csv
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
+# Application version
+APP_VERSION = "3.22"
+
 # Page configuration - must be first Streamlit command
 st.set_page_config(
     page_title="Alarm Rationalization Platform",
@@ -2051,7 +2054,7 @@ I found an issue with the Alarm Rationalization Platform.
 
 CLIENT: {client_options.get(selected_client, 'Unknown')}
 DIRECTION: {direction}
-VERSION: 3.17
+VERSION: {APP_VERSION}
 
 DESCRIPTION OF ISSUE:
 [Describe what happened]
@@ -2077,7 +2080,7 @@ Thanks,
 I have a feature suggestion for the Alarm Rationalization Platform.
 
 CLIENT: {client_options.get(selected_client, 'Unknown')}
-VERSION: 3.3
+VERSION: {APP_VERSION}
 
 FEATURE DESCRIPTION:
 [Describe the feature you'd like]
@@ -2093,7 +2096,7 @@ Thanks,
 I have a question about the Alarm Rationalization Platform.
 
 CLIENT: {client_options.get(selected_client, 'Unknown')}
-VERSION: 3.3
+VERSION: {APP_VERSION}
 
 QUESTION:
 [Your question here]
