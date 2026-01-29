@@ -665,10 +665,15 @@ class AlarmTransformer:
         return any(d in at_lower for d in self.DISCRETE_ALARM_TYPES)
     
     def _clean_value(self, value: str) -> str:
-        """Clean a value - return empty string for placeholder values like ~."""
+        """Clean a value - return empty string for placeholder values like ~.
+        Also removes commas from numeric values and fixes encoding issues.
+        """
         if not value or value.strip() in ['~', '-', '']:
             return ""
-        return self._fix_encoding(value.strip())
+        cleaned = value.strip()
+        # Remove commas from numeric values (e.g., "1,500" -> "1500")
+        cleaned = cleaned.replace(',', '')
+        return self._fix_encoding(cleaned)
     
     def _fix_encoding(self, value: str) -> str:
         """Fix common encoding issues, particularly the degree symbol.
