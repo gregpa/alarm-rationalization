@@ -305,14 +305,16 @@ class AlarmTransformer:
         "Maximum Time to Resolve"
     ]
     
-    # Client configurations
+    # Client configurations with Unit/Area hierarchy
+    # Structure: CLIENT_CONFIGS[client_id] contains base config + "areas" dict
+    # Each area can override any base config setting
     CLIENT_CONFIGS = {
         "flng": {
             "name": "Freeport LNG",
             "vendor": "Honeywell Experion/DynAMo",
-            "dcs_name": "DynAMo",  # For UI labels
-            "pha_tool": "PHA-Pro",  # For UI labels
-            "parser": "dynamo",  # Which parser to use
+            "dcs_name": "DynAMo",
+            "pha_tool": "PHA-Pro",
+            "parser": "dynamo",
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
             "tag_source_rules": [
@@ -321,6 +323,20 @@ class AlarmTransformer:
                 {"in": ["ANA", "STA"], "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
             ],
             "default_source": "Honeywell TDC (DCS)",
+            # Areas/Units within this client
+            "areas": {
+                "lqf_u17": {
+                    "name": "LQF - Unit 17",
+                    "description": "Liquefaction Facility Unit 17",
+                    # No overrides needed - uses base config
+                },
+                "ptf_u61": {
+                    "name": "PTF - Unit 61",
+                    "description": "Pretreatment Facility Unit 61",
+                    # Same config as LQF-17
+                },
+            },
+            "default_area": "lqf_u17",
         },
         "hfs_artesia": {
             "name": "HF Sinclair - Artesia",
@@ -330,28 +346,33 @@ class AlarmTransformer:
             "parser": "dynamo",
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
-            # HF Sinclair has no Safety Manager - only TDC, Experion, and SCADA
             "tag_source_rules": [
                 {"in": ["ANALGIN", "DIGIN"], "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
                 {"in": ["ANA", "STA"], "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
             ],
             "default_source": "Honeywell Experion (DCS)",
-            # HF Sinclair has empty mode column - treat empty as valid (no mode filtering)
             "empty_mode_is_valid": True,
-            # Use HFS-specific PHA-Pro headers
             "phapro_headers": "HFS",
+            # Areas/Units within this client
+            "areas": {
+                "north_console": {
+                    "name": "North Console",
+                    "description": "North Console Area",
+                    # No overrides - uses base config
+                },
+            },
+            "default_area": "north_console",
         },
         "rt_bessemer": {
             "name": "Rio Tinto - Bessemer City",
             "vendor": "ABB",
             "dcs_name": "ABB",
             "pha_tool": "PHA-Pro",
-            "parser": "abb",  # Use ABB parser
+            "parser": "abb",
             "unit_method": "FIXED",
-            "unit_value": "Line 1",  # Fixed unit for this site
+            "unit_value": "Line 1",
             "tag_source_rules": [],
             "default_source": "ABB 800xA (DCS)",
-            # ABB-specific alarm type mappings
             "abb_alarm_types": {
                 "H": "(PV) High",
                 "HH": "(PV) High High", 
@@ -361,8 +382,15 @@ class AlarmTransformer:
                 "LLL": "(PV) Low Low Low",
                 "OE": "Object Error",
             },
-            # ABB priority mapping (ABB uses numeric, PHA-Pro uses numeric too for ABB)
             "abb_priority_default": 3,
+            # Areas/Units within this client
+            "areas": {
+                "line_1": {
+                    "name": "Line 1",
+                    "description": "Production Line 1",
+                },
+            },
+            "default_area": "line_1",
         },
     }
     
@@ -386,10 +414,46 @@ class AlarmTransformer:
         "standard_hi", "standard_lo", "info_hi", "info_lo",
     ]
     
-    def __init__(self, client_id: str):
+    def __init__(self, client_id: str, area_id: str = None):
+        """Initialize transformer with client and optional area configuration.
+        
+        Args:
+            client_id: The client identifier (e.g., 'flng', 'hfs_artesia')
+            area_id: Optional area/unit identifier. If not provided, uses default_area.
+        """
         self.client_id = client_id
-        self.config = self.CLIENT_CONFIGS.get(client_id, self.CLIENT_CONFIGS["flng"])
+        base_config = self.CLIENT_CONFIGS.get(client_id, self.CLIENT_CONFIGS["flng"])
+        
+        # Start with base config (copy to avoid mutation)
+        self.config = dict(base_config)
+        
+        # Determine area
+        self.area_id = area_id or base_config.get("default_area")
+        
+        # If area specified, merge area-specific overrides
+        areas = base_config.get("areas", {})
+        if self.area_id and self.area_id in areas:
+            area_config = areas[self.area_id]
+            # Merge area overrides (area settings override base settings)
+            for key, value in area_config.items():
+                if key not in ["name", "description"]:  # Don't override display fields at top level
+                    self.config[key] = value
+            self.area_name = area_config.get("name", self.area_id)
+        else:
+            self.area_name = None
+        
         self.stats = {"tags": 0, "alarms": 0, "units": set()}
+    
+    @classmethod
+    def get_client_areas(cls, client_id: str) -> dict:
+        """Get available areas for a client.
+        
+        Returns:
+            Dict of {area_id: area_name} for the client
+        """
+        client_config = cls.CLIENT_CONFIGS.get(client_id, {})
+        areas = client_config.get("areas", {})
+        return {aid: aconfig.get("name", aid) for aid, aconfig in areas.items()}
     
     def parse_abb_excel(self, file_bytes: bytes) -> List[Dict]:
         """Parse ABB 800xA Excel export (wide format with alarm columns)."""
@@ -2107,10 +2171,61 @@ def main():
             help="Choose the client configuration for tag source rules and mappings"
         )
         
+        # Get available areas for this client
+        area_options = AlarmTransformer.get_client_areas(selected_client)
+        
+        # Area/Unit dropdown
+        if area_options:
+            selected_area = st.selectbox(
+                "Select Unit/Area",
+                options=list(area_options.keys()),
+                format_func=lambda x: area_options[x],
+                help="Choose the specific unit or area within this client site"
+            )
+        else:
+            selected_area = None
+        
         # Get the selected client's config for dynamic labels
         client_config = AlarmTransformer.CLIENT_CONFIGS.get(selected_client, {})
         dcs_name = client_config.get("dcs_name", "DCS")
         pha_tool = client_config.get("pha_tool", "PHA-Pro")
+        
+        # Request New Client/Area button
+        import urllib.parse as sidebar_urllib
+        request_subject = sidebar_urllib.quote("New Client/Area Request - Alarm Rationalization Platform")
+        request_body_text = f"""Hi Greg,
+
+I need a new client or unit/area added to the Alarm Rationalization Platform.
+
+CURRENT SELECTION:
+Client: {client_options.get(selected_client, 'Unknown')}
+Area: {area_options.get(selected_area, 'N/A') if selected_area else 'N/A'}
+
+NEW REQUEST:
+[ ] New Client (different company/site)
+[ ] New Unit/Area (within existing client)
+
+Details:
+- Client/Site Name: 
+- Unit/Area Name: 
+- DCS System: 
+- Any special requirements: 
+
+Thanks,
+""" + st.session_state.get('username', '[Your name]')
+        request_body = sidebar_urllib.quote(request_body_text)
+        
+        request_link = f"mailto:greg.pajak@aesolutions.com?subject={request_subject}&body={request_body}"
+        st.markdown(
+            f'<a href="{request_link}" style="text-decoration: none;">'
+            f'<div style="background-color: #2d5a87; color: white; padding: 8px 12px; border-radius: 5px; text-align: center; font-size: 0.85rem; margin-top: 10px;">'
+            f'📧 Request New Client/Area'
+            f'</div></a>',
+            unsafe_allow_html=True
+        )
+        st.caption("Don't see your client or unit? Click to request.")
+        
+        st.markdown("---")
         
         # Transformation direction with dynamic labels
         direction = st.radio(
@@ -2180,11 +2295,17 @@ def main():
         with st.expander("ðŸ“ Version History"):
             st.markdown("""
             **v3.23** - Jan 2026
+            - Added Unit/Area selection within each client
+            - FLNG: LQF - Unit 17, PTF - Unit 61
+            - HF Sinclair: North Console (more areas coming)
+            - "Request New Client/Area" email button
+            - P&ID column added to HFS format (46 columns)
+            - Unit extraction: only leading digits (NPHSAOP -> 00)
+            - Units always 2 digits (5 -> 05)
+            - "Show Expected PHA-Pro Columns" preview button
             - HF Sinclair support: empty mode handling, TDC priority names
             - Flexible column name matching for PHA-Pro exports
             - Blank fields in PHA-Pro preserve original DynAMo values
-            - Enhanced priority mapping (EMERGNCY, NOACTION, PRINTER)
-            - Enhanced severity mapping (CRITICAL, STANDARD, MINOR)
             
             **v3.22** - Jan 2026
             - Fixed Unit column: only shows on first row of each unit group (not every tag)
@@ -2377,7 +2498,7 @@ Thanks,
             
             # Show expected output columns button
             with st.expander("📋 Show Expected PHA-Pro Output Columns"):
-                temp_transformer = AlarmTransformer(selected_client)
+                temp_transformer = AlarmTransformer(selected_client, selected_area)
                 expected_headers = temp_transformer.get_phapro_headers()
                 
                 st.markdown(f"**{pha_tool} Import Format - {len(expected_headers)} Columns**")
@@ -2595,8 +2716,8 @@ Best when you need granular unit breakdown.
                 # Get parser type
                 parser_type = client_config.get("parser", "dynamo")
                 
-                # Create transformer
-                transformer = AlarmTransformer(selected_client)
+                # Create transformer with selected area
+                transformer = AlarmTransformer(selected_client, selected_area)
                 
                 # Initialize variables for change report
                 file_content = None
