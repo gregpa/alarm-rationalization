@@ -950,13 +950,15 @@ class AlarmTransformer:
                     last_unit = tag['unit']
                 is_first_alarm_for_tag = False
         
-        # Convert to CSV
+        # Convert to CSV with Latin-1 encoding for DynAMo compatibility
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(self.PHAPRO_HEADERS)
         writer.writerows(rows)
         
-        return output.getvalue(), self.stats
+        # Encode as Latin-1 bytes for proper download
+        csv_string = output.getvalue()
+        return csv_string.encode('latin-1', errors='replace'), self.stats
     
     def transform_forward_abb(self, file_bytes: bytes) -> Tuple[str, Dict]:
         """Transform ABB Excel export to PHA-Pro format (23-column)."""
