@@ -289,17 +289,17 @@ class AlarmTransformer:
         "New Limit", "New Priority", "New Alarm Severity Level", "ABB Consolidated Notes"
     ]
     
-    # HF Sinclair PHA-Pro 46-column headers (with P&ID)
+    # HF Sinclair PHA-Pro 43-column headers (matches Tag_Import template)
     HFS_PHAPRO_HEADERS = [
         "Unit", "Starting Tag Name", "New Tag Name", "Old Tag Description", "New Tag Description",
         "P&ID", "Range Min", "Range Max", "Engineering Units", "Tag Source", "Rationalization (Tag) Comment",
         "Old Tag Enable Status", "New Tag Enable Status",
         "Starting Alarm Type", "New Alarm Type", "Old Alarm Enable Status", "New Alarm Enable Status",
-        "Old Alarm Priority", "New Alarm Priority", "Old (BPCS) Priority", "New (BPCS) Priority",
+        "Old (BPCS) Priority", "New (BPCS) Priority",
         "Old Limit", "New Limit", "Old Deadband", "New Deadband", "Old Deadband Units", "New Deadband Units",
         "Old On-Delay Time", "New On-Delay Time", "Old Off-Delay Time", "New Off-Delay Time",
         "Rationalization Status", "Alarm Status", "Rationalization (Alarm) Comment", "Alarm Class",
-        "Recommendations", "Cause(s)", "Consequence(s)", "Inside Action(s)", "Outside Action(s)",
+        "Cause(s)", "Consequence(s)", "Inside Action(s)", "Outside Action(s)",
         "Escalation", "Limit Owner", "Personnel", "Public or Environment", "Costs / Production",
         "Maximum Time to Resolve"
     ]
@@ -970,43 +970,51 @@ class AlarmTransformer:
                 alarm_type = param.get('alarmType', '')
                 
                 if phapro_format == "HFS":
-                    # HF Sinclair 46-column format
+                    # HF Sinclair 43-column format (matches Tag_Import template)
                     row = [
-                        tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",
-                        tag['tag_name'] if is_first_alarm_for_tag else "",
-                        tag['tag_name'] if is_first_alarm_for_tag else "",
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",
-                        tag['pid'] if is_first_alarm_for_tag else "",
-                        tag['range_min'] if is_first_alarm_for_tag else "",
-                        tag['range_max'] if is_first_alarm_for_tag else "",
-                        tag['eng_units'] or "~" if is_first_alarm_for_tag else "",
-                        tag_source if is_first_alarm_for_tag else "",
-                        f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",
-                        "Enabled" if is_first_alarm_for_tag else "",
-                        "Enabled" if is_first_alarm_for_tag else "",
-                        alarm_type, alarm_type,
-                        indiv_enable, indiv_enable,
-                        priority_code, priority_code, priority_code, priority_code,
-                        limit_value, limit_value,
-                        self._clean_value(param.get('DeadBandValue', '')),
-                        self._clean_value(param.get('DeadBandValue', '')),
-                        self._clean_value(param.get('DeadBandUnitValue', '')),
-                        self._clean_value(param.get('DeadBandUnitValue', '')),
-                        self._clean_value(param.get('OnDelayValue', '')),
-                        self._clean_value(param.get('OnDelayValue', '')),
-                        self._clean_value(param.get('OffDelayValue', '')),
-                        self._clean_value(param.get('OffDelayValue', '')),
-                        "Not Started_x", alarm_status,
-                        "", "",
-                        param.get('PurposeOfAlarm', '~') or "~",
-                        param.get('ConsequenceOfNoAction', '~') or "~",
-                        param.get('BoardOperator', '~') or "~",
-                        param.get('FieldOperator', '~') or "~",
-                        "", "",
-                        self.map_severity(param.get('consequence', '')),
-                        "", "",
-                        param.get('TimeToRespond', '') or "",
+                        tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",  # 1. Unit
+                        tag['tag_name'] if is_first_alarm_for_tag else "",  # 2. Starting Tag Name
+                        tag['tag_name'] if is_first_alarm_for_tag else "",  # 3. New Tag Name
+                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # 4. Old Tag Description
+                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # 5. New Tag Description
+                        tag['pid'] if is_first_alarm_for_tag else "",  # 6. P&ID
+                        tag['range_min'] if is_first_alarm_for_tag else "",  # 7. Range Min
+                        tag['range_max'] if is_first_alarm_for_tag else "",  # 8. Range Max
+                        tag['eng_units'] or "~" if is_first_alarm_for_tag else "",  # 9. Engineering Units
+                        tag_source if is_first_alarm_for_tag else "",  # 10. Tag Source
+                        f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",  # 11. Rationalization (Tag) Comment
+                        "Enabled" if is_first_alarm_for_tag else "",  # 12. Old Tag Enable Status
+                        "Enabled" if is_first_alarm_for_tag else "",  # 13. New Tag Enable Status
+                        alarm_type,  # 14. Starting Alarm Type
+                        alarm_type,  # 15. New Alarm Type
+                        indiv_enable,  # 16. Old Alarm Enable Status
+                        indiv_enable,  # 17. New Alarm Enable Status
+                        priority_code,  # 18. Old (BPCS) Priority
+                        priority_code,  # 19. New (BPCS) Priority
+                        limit_value,  # 20. Old Limit
+                        limit_value,  # 21. New Limit
+                        self._clean_value(param.get('DeadBandValue', '')),  # 22. Old Deadband
+                        self._clean_value(param.get('DeadBandValue', '')),  # 23. New Deadband
+                        self._clean_value(param.get('DeadBandUnitValue', '')),  # 24. Old Deadband Units
+                        self._clean_value(param.get('DeadBandUnitValue', '')),  # 25. New Deadband Units
+                        self._clean_value(param.get('OnDelayValue', '')),  # 26. Old On-Delay Time
+                        self._clean_value(param.get('OnDelayValue', '')),  # 27. New On-Delay Time
+                        self._clean_value(param.get('OffDelayValue', '')),  # 28. Old Off-Delay Time
+                        self._clean_value(param.get('OffDelayValue', '')),  # 29. New Off-Delay Time
+                        "Not Started_x",  # 30. Rationalization Status
+                        alarm_status,  # 31. Alarm Status
+                        "",  # 32. Rationalization (Alarm) Comment
+                        "",  # 33. Alarm Class
+                        param.get('PurposeOfAlarm', '~') or "~",  # 34. Cause(s)
+                        param.get('ConsequenceOfNoAction', '~') or "~",  # 35. Consequence(s)
+                        param.get('BoardOperator', '~') or "~",  # 36. Inside Action(s)
+                        param.get('FieldOperator', '~') or "~",  # 37. Outside Action(s)
+                        "",  # 38. Escalation
+                        "",  # 39. Limit Owner
+                        "",  # 40. Personnel
+                        "",  # 41. Public or Environment
+                        self.map_severity(param.get('consequence', '')),  # 42. Costs / Production
+                        param.get('TimeToRespond', '') or "",  # 43. Maximum Time to Resolve
                     ]
                 else:
                     # FLNG 45-column format (default)
