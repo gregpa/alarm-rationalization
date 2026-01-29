@@ -40,6 +40,28 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
+## 🚀 Deployment
+
+This project features automatic deployment to Streamlit Cloud.
+
+### Quick Deploy
+```bash
+./deploy.sh
+```
+
+The deploy script will guide you through committing and pushing changes. Any push to the `main` branch automatically triggers deployment to production.
+
+**For detailed deployment instructions**, see [DEPLOYMENT.md](DEPLOYMENT.md)
+
+### Manual Deploy
+```bash
+git add .
+git commit -m "Your changes"
+git push origin main
+```
+
+Changes will be live at https://alarm-rationalization.streamlit.app within 2-5 minutes.
+
 ## 📋 Supported Formats
 
 ### Forward (DynAMo → PHA-Pro)
