@@ -289,8 +289,7 @@ class AlarmTransformer:
         "New Limit", "New Priority", "New Alarm Severity Level", "ABB Consolidated Notes"
     ]
     
-    # HF Sinclair PHA-Pro headers (matches their Tag Import format)
-    # Based on actual PHA-Pro import screen columns - same structure as FLNG
+    # HF Sinclair PHA-Pro 46-column headers (with P&ID)
     HFS_PHAPRO_HEADERS = [
         "Unit", "Starting Tag Name", "New Tag Name", "Old Tag Description", "New Tag Description",
         "P&ID", "Range Min", "Range Max", "Engineering Units", "Tag Source", "Rationalization (Tag) Comment",
@@ -306,8 +305,6 @@ class AlarmTransformer:
     ]
     
     # Client configurations with Unit/Area hierarchy
-    # Structure: CLIENT_CONFIGS[client_id] contains base config + "areas" dict
-    # Each area can override any base config setting
     CLIENT_CONFIGS = {
         "flng": {
             "name": "Freeport LNG",
@@ -323,18 +320,9 @@ class AlarmTransformer:
                 {"in": ["ANA", "STA"], "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
             ],
             "default_source": "Honeywell TDC (DCS)",
-            # Areas/Units within this client
             "areas": {
-                "lqf_u17": {
-                    "name": "LQF - Unit 17",
-                    "description": "Liquefaction Facility Unit 17",
-                    # No overrides needed - uses base config
-                },
-                "ptf_u61": {
-                    "name": "PTF - Unit 61",
-                    "description": "Pretreatment Facility Unit 61",
-                    # Same config as LQF-17
-                },
+                "lqf_u17": {"name": "LQF - Unit 17", "description": "Liquefaction Facility Unit 17"},
+                "ptf_u61": {"name": "PTF - Unit 61", "description": "Pretreatment Facility Unit 61"},
             },
             "default_area": "lqf_u17",
         },
@@ -347,19 +335,13 @@ class AlarmTransformer:
             "unit_method": "TAG_PREFIX",
             "unit_digits": 2,
             "tag_source_rules": [
-                {"in": ["ANALGIN", "DIGIN"], "field": "point_type", "source": "Honeywell TDC (DCS)", "enforcement": "M"},
-                {"in": ["ANA", "STA"], "field": "point_type", "source": "Honeywell Experion (SCADA)", "enforcement": "M"},
+                {"prefix": "SM", "field": "point_type", "source": "Honeywell Safety Manager (SIS)", "enforcement": "R"},
             ],
             "default_source": "Honeywell Experion (DCS)",
             "empty_mode_is_valid": True,
             "phapro_headers": "HFS",
-            # Areas/Units within this client
             "areas": {
-                "north_console": {
-                    "name": "North Console",
-                    "description": "North Console Area",
-                    # No overrides - uses base config
-                },
+                "north_console": {"name": "North Console", "description": "North Console Area"},
             },
             "default_area": "north_console",
         },
@@ -368,11 +350,12 @@ class AlarmTransformer:
             "vendor": "ABB",
             "dcs_name": "ABB",
             "pha_tool": "PHA-Pro",
-            "parser": "abb",
+            "parser": "abb",  # Use ABB parser
             "unit_method": "FIXED",
-            "unit_value": "Line 1",
+            "unit_value": "Line 1",  # Fixed unit for this site
             "tag_source_rules": [],
             "default_source": "ABB 800xA (DCS)",
+            # ABB-specific alarm type mappings
             "abb_alarm_types": {
                 "H": "(PV) High",
                 "HH": "(PV) High High", 
@@ -383,12 +366,8 @@ class AlarmTransformer:
                 "OE": "Object Error",
             },
             "abb_priority_default": 3,
-            # Areas/Units within this client
             "areas": {
-                "line_1": {
-                    "name": "Line 1",
-                    "description": "Production Line 1",
-                },
+                "line_1": {"name": "Line 1", "description": "Production Line 1"},
             },
             "default_area": "line_1",
         },
@@ -405,22 +384,11 @@ class AlarmTransformer:
         "uncommanded", "c1 -", "c2 -", "c3 -", "c4 -", "c5 -", "c6 -", 
         "c7 -", "c8 -", "c9 -", "c10 -", "c11 -", "c12 -",
         "flagoffnorm", "devbadpv", "devcmddis", "devuncevt", "devcmdfail",
-        "daqpvhi", "daqpvhihi", "daqpvlow", "daqpvlolo", "daqrocneg", "daqrocpos", "regbadctl",
-        # HF Sinclair specific discrete alarm types
-        "badpv", "badoc", "cmddis", "ovrdal",  # Discrete status alarms
-        "c1", "c2", "c3", "c4",  # State alarms without dash
-        "sol_critical", "critical", "standard", "informational",  # Named boundaries (when no alarm type)
-        "sol_criticalhi", "sol_criticallo", "critical_hi", "critical_lo",
-        "standard_hi", "standard_lo", "info_hi", "info_lo",
+        "daqpvhi", "daqpvhihi", "daqpvlow", "daqpvlolo", "daqrocneg", "daqrocpos", "regbadctl"
     ]
     
     def __init__(self, client_id: str, area_id: str = None):
-        """Initialize transformer with client and optional area configuration.
-        
-        Args:
-            client_id: The client identifier (e.g., 'flng', 'hfs_artesia')
-            area_id: Optional area/unit identifier. If not provided, uses default_area.
-        """
+        """Initialize transformer with client and optional area configuration."""
         self.client_id = client_id
         base_config = self.CLIENT_CONFIGS.get(client_id, self.CLIENT_CONFIGS["flng"])
         
@@ -434,9 +402,8 @@ class AlarmTransformer:
         areas = base_config.get("areas", {})
         if self.area_id and self.area_id in areas:
             area_config = areas[self.area_id]
-            # Merge area overrides (area settings override base settings)
             for key, value in area_config.items():
-                if key not in ["name", "description"]:  # Don't override display fields at top level
+                if key not in ["name", "description"]:
                     self.config[key] = value
             self.area_name = area_config.get("name", self.area_id)
         else:
@@ -446,14 +413,18 @@ class AlarmTransformer:
     
     @classmethod
     def get_client_areas(cls, client_id: str) -> dict:
-        """Get available areas for a client.
-        
-        Returns:
-            Dict of {area_id: area_name} for the client
-        """
+        """Get available areas for a client."""
         client_config = cls.CLIENT_CONFIGS.get(client_id, {})
         areas = client_config.get("areas", {})
         return {aid: aconfig.get("name", aid) for aid, aconfig in areas.items()}
+    
+    def get_phapro_headers(self) -> list:
+        """Get the PHA-Pro headers for this client format."""
+        phapro_format = self.config.get("phapro_headers", "FLNG")
+        if phapro_format == "HFS":
+            return self.HFS_PHAPRO_HEADERS
+        else:
+            return self.PHAPRO_HEADERS
     
     def parse_abb_excel(self, file_bytes: bytes) -> List[Dict]:
         """Parse ABB 800xA Excel export (wide format with alarm columns)."""
@@ -620,8 +591,7 @@ class AlarmTransformer:
             method: Override method - "tag_prefix", "asset_parent", "asset_child" (optional)
         
         Returns:
-            Unit string. For TAG_PREFIX method, always returns 2-digit format (e.g., "05").
-            Returns "00" if no unit can be extracted.
+            Unit string, or empty string if not found.
         
         Methods:
             - tag_prefix: First digits of tag name (e.g., "17" from "17TI5879")
@@ -634,23 +604,15 @@ class AlarmTransformer:
         use_method = method or self.config.get("unit_method", "TAG_PREFIX")
         use_method = use_method.upper()
         
-        # Get expected digit count from config
-        unit_digits = self.config.get("unit_digits", 2)
-        
-        # Extract unit from tag prefix - ONLY leading digits
+        # Extract unit from tag prefix
         unit_from_prefix = ""
         for ch in tag_name:
             if ch.isdigit():
                 unit_from_prefix += ch
-                if len(unit_from_prefix) >= unit_digits:
+                if len(unit_from_prefix) >= self.config["unit_digits"]:
                     break
-            else:
-                # Stop at first non-digit - we only want LEADING digits
+            elif unit_from_prefix:
                 break
-        
-        # Pad to required digits (e.g., "5" -> "05")
-        if unit_from_prefix:
-            unit_from_prefix = unit_from_prefix.zfill(unit_digits)
         
         # Extract parent and child units from asset path
         unit_parent = ""
@@ -677,31 +639,23 @@ class AlarmTransformer:
                     # No child level, parent is also the "child"
                     unit_child = parts[0]
         
-        # Determine result based on method
-        result = ""
+        # Return based on method
         if use_method == "TAG_PREFIX":
-            result = unit_from_prefix
+            return unit_from_prefix
         elif use_method == "ASSET_PARENT":
-            result = unit_parent
+            return unit_parent
         elif use_method == "ASSET_CHILD":
-            result = unit_child if unit_child else unit_parent
+            return unit_child if unit_child else unit_parent
         elif use_method == "ASSET_PATH":
             # Legacy - use parent
-            result = unit_parent
+            return unit_parent
         elif use_method == "BOTH":
             # Both tag prefix and asset parent must match
             if unit_from_prefix and unit_parent and unit_from_prefix in unit_parent:
-                result = unit_parent
-            else:
-                result = ""
-        else:
-            result = unit_from_prefix  # default fallback
+                return unit_parent
+            return ""
         
-        # If no unit found and using TAG_PREFIX, return "00"
-        if not result and use_method == "TAG_PREFIX":
-            result = "0".zfill(unit_digits)  # "00" for 2 digits
-        
-        return result
+        return unit_from_prefix  # default fallback
     
     def derive_tag_source(self, tag_name: str, point_type: str) -> Tuple[str, str]:
         """Derive tag source and enforcement from rules."""
@@ -719,17 +673,10 @@ class AlarmTransformer:
         return self.config.get("default_source", "Unknown"), "M"
     
     def map_priority(self, priority: str, disabled_value: str = "") -> Tuple[str, str]:
-        """Map priority to code and alarm status.
-        
-        Handles multiple DCS naming conventions:
-        - Standard: Urgent, Critical, High, Medium, Low, Journal, None
-        - Honeywell TDC: EMERGNCY, HIGH, LOW, JOURNAL, NOACTION, PRINTER
-        """
+        """Map priority to code and alarm status."""
         p = priority.strip().lower() if priority else ""
         
-        # Comprehensive mapping supporting multiple conventions
         mapping = {
-            # Standard names
             'urgent': ('U', 'Alarm'),
             'critical': ('C', 'Alarm'),
             'high': ('H', 'Alarm'),
@@ -737,11 +684,6 @@ class AlarmTransformer:
             'low': ('L', 'Alarm'),
             'journal': ('J', 'Event'),
             'none': ('N', 'None'),
-            # Honeywell TDC names (HF Sinclair)
-            'emergncy': ('U', 'Alarm'),  # E -> U (Emergency = Urgent)
-            'emergency': ('U', 'Alarm'),  # Alternate spelling
-            'noaction': ('N', 'None'),   # NA -> N
-            'printer': ('J', 'Event'),   # P -> J (Printer = Journal)
         }
         
         code, status = mapping.get(p, ('N', 'None'))
@@ -753,12 +695,7 @@ class AlarmTransformer:
         return code, status
     
     def map_severity(self, consequence: str) -> str:
-        """Map consequence text to severity code (A-E or (N)).
-        
-        Handles multiple naming conventions:
-        - ISA/EEMUA: Catastrophic, Major, Moderate, Minor, Insignificant
-        - Honeywell TDC: CRITICAL, STANDARD, MINOR (subset mapping)
-        """
+        """Map consequence text to severity code (A-E or (N))."""
         if not consequence or consequence.strip() in ["~", "", "-"]:
             return "(N)"
         
@@ -768,25 +705,16 @@ class AlarmTransformer:
         if c in ['A', 'B', 'C', 'D', 'E']:
             return c
         
-        # Text to letter mapping - comprehensive list
+        # Text to letter mapping
         text_mapping = {
-            # ISA/EEMUA standard names
             'CATASTROPHIC': 'A',
             'MAJOR': 'B', 
             'MODERATE': 'C',
             'MINOR': 'D',
             'INSIGNIFICANT': 'E',
-            # Honeywell TDC names (HF Sinclair)
-            'CRITICAL': 'A',   # Critical = Catastrophic
-            'STANDARD': 'C',   # Standard = Moderate
-            # Note: MINOR maps to D in both conventions
         }
         
-        # Check for exact match first
-        if c in text_mapping:
-            return text_mapping[c]
-        
-        # Check for partial matches (including partial)
+        # Check for text matches (including partial)
         for text, code in text_mapping.items():
             if text in c or c in text:
                 return code
@@ -839,72 +767,20 @@ class AlarmTransformer:
         
         return result
     
-    def get_phapro_headers(self) -> List[str]:
-        """Get the PHA-Pro headers for this client's format."""
-        phapro_format = self.config.get("phapro_headers", "FLNG")
-        if phapro_format == "HFS":
-            return self.HFS_PHAPRO_HEADERS
-        else:
-            return self.PHAPRO_HEADERS
-    
     def validate_phapro_columns(self, col_map: Dict[str, int]) -> List[str]:
         """
         Validate that all required PHA-Pro columns are present.
-        Handles column name variations (e.g., 'Tag Name' or 'New Tag Name').
+        Column names must match exactly.
         
         Returns:
             List of missing column names (empty if all present)
         """
-        # Required columns with acceptable alternatives
-        # Format: (preferred_name, [alternatives], description)
-        required_columns = [
-            ('Tag Name', ['New Tag Name'], 'Tag identifier - needed to map back to DynAMo'),
-            ('Tag Source', [], 'Determines enforcement (M vs R for Safety Manager)'),
-            ('Alarm Type', ['New Alarm Type'], 'Required to identify which alarm parameter to update'),
-            ('New Priority', ['New (BPCS) Priority'], 'Maps to DynAMo priorityValue'),
-            ('New Limit', [], 'Maps to DynAMo value field for analog alarms'),
-            ('Alarm Status', [], 'Determines consequence and disabled state'),
-            ('Cause(s)', [], 'Maps to DynAMo Purpose of Alarm'),
-            ('Consequence(s)', [], 'Maps to DynAMo Consequence of No Action'),
-            ('Inside Action(s)', [], 'Maps to DynAMo Board Operator'),
-            ('Outside Action(s)', [], 'Maps to DynAMo Field Operator'),
-            ('Max Severity', [], 'Maps to DynAMo consequence field'),
-            ('TTR Range', ['Allowable TTR', 'Allowable Time to Respond'], 'Maps to DynAMo TimeToRespond'),
-            ('New Individual Alarm Enable Status', [], 'Maps to DynAMo DisabledValue (TRUE/FALSE)'),
-        ]
-        
-        # Check for missing columns
-        missing = []
-        for col_name, alternatives, description in required_columns:
-            found = col_name in col_map
-            if not found:
-                # Check alternatives
-                for alt in alternatives:
-                    if alt in col_map:
-                        found = True
-                        break
-            if not found:
-                missing.append(col_name)
-        
-        return missing
-    
-    def get_column_index(self, col_map: Dict[str, int], primary: str, alternatives: List[str] = None) -> Optional[int]:
-        """Get column index, checking primary name then alternatives."""
-        if primary in col_map:
-            return col_map[primary]
-        if alternatives:
-            for alt in alternatives:
-                if alt in col_map:
-                    return col_map[alt]
-        return None
-    
-    def get_required_columns_info(self) -> Dict[str, str]:
-        """Return dictionary of required columns and their purposes."""
-        return {
-            'Tag Name (or New Tag Name)': 'Tag identifier - needed to map back to DynAMo',
+        # Required columns for reverse transformation (exact names required)
+        required_columns = {
+            'Tag Name': 'Tag identifier - needed to map back to DynAMo',
             'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
-            'Alarm Type (or New Alarm Type)': 'Required to identify which alarm parameter to update',
-            'New Priority (or New (BPCS) Priority)': 'Maps to DynAMo priorityValue',
+            'Alarm Type': 'Required to identify which alarm parameter to update',
+            'New Priority': 'Maps to DynAMo priorityValue',
             'New Limit': 'Maps to DynAMo value field for analog alarms',
             'Alarm Status': 'Determines consequence and disabled state',
             'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
@@ -912,7 +788,33 @@ class AlarmTransformer:
             'Inside Action(s)': 'Maps to DynAMo Board Operator',
             'Outside Action(s)': 'Maps to DynAMo Field Operator',
             'Max Severity': 'Maps to DynAMo consequence field',
-            'TTR Range (or Allowable TTR)': 'Maps to DynAMo TimeToRespond',
+            'TTR Range': 'Maps to DynAMo TimeToRespond',
+            'New Individual Alarm Enable Status': 'Maps to DynAMo DisabledValue (TRUE/FALSE)',
+        }
+        
+        # Check for missing columns (exact match required)
+        missing = []
+        for col_name in required_columns.keys():
+            if col_name not in col_map:
+                missing.append(col_name)
+        
+        return missing
+    
+    def get_required_columns_info(self) -> Dict[str, str]:
+        """Return dictionary of required columns and their purposes."""
+        return {
+            'Tag Name': 'Tag identifier - needed to map back to DynAMo',
+            'Tag Source': 'Determines enforcement (M vs R for Safety Manager)',
+            'Alarm Type': 'Required to identify which alarm parameter to update',
+            'New Priority': 'Maps to DynAMo priorityValue',
+            'New Limit': 'Maps to DynAMo value field for analog alarms',
+            'Alarm Status': 'Determines consequence and disabled state',
+            'Cause(s)': 'Maps to DynAMo Purpose of Alarm',
+            'Consequence(s)': 'Maps to DynAMo Consequence of No Action',
+            'Inside Action(s)': 'Maps to DynAMo Board Operator',
+            'Outside Action(s)': 'Maps to DynAMo Field Operator',
+            'Max Severity': 'Maps to DynAMo consequence field',
+            'TTR Range': 'Maps to DynAMo TimeToRespond',
             'New Individual Alarm Enable Status': 'Maps to DynAMo DisabledValue (TRUE/FALSE)',
         }
     
@@ -940,17 +842,14 @@ class AlarmTransformer:
             if not params:
                 continue
             
-            # Filter to NORMAL mode only
-            # Note: Some clients (HF Sinclair) have empty mode column - treat empty as valid
-            empty_mode_valid = self.config.get("empty_mode_is_valid", False)
-            
-            if empty_mode_valid:
-                # Include rows with empty mode OR mode == NORMAL
-                normal_params = [p for p in params if p.get('mode', '').strip() == '' or p.get('mode', '').upper() == 'NORMAL']
+            # Filter to NORMAL mode only (unless empty_mode_is_valid is set for clients like HFS)
+            empty_mode_is_valid = self.config.get("empty_mode_is_valid", False)
+            if empty_mode_is_valid:
+                # For HFS: accept empty mode OR NORMAL mode
+                normal_params = [p for p in params if p.get('mode', '').upper() in ['NORMAL', '']]
             else:
-                # Standard behavior: only include NORMAL mode
+                # Standard: only NORMAL mode
                 normal_params = [p for p in params if p.get('mode', '').upper() == 'NORMAL']
-            
             skipped = len(params) - len(normal_params)
             self.stats["skipped_modes"] += skipped
             
@@ -1029,9 +928,7 @@ class AlarmTransformer:
             is_first_alarm_for_tag = True
             
             for param in tag['params']:
-                alarm_type = param.get('alarmType', '')
-                # Skip rows without valid alarm type (empty or ~)
-                if not alarm_type or alarm_type == '~':
+                if not param.get('alarmType'):
                     continue
                 
                 self.stats["alarms"] += 1
@@ -1063,63 +960,53 @@ class AlarmTransformer:
                 
                 # Clean limit value (remove commas, handle discrete)
                 limit_value = ""
-                if not self.is_discrete(alarm_type):
+                if not self.is_discrete(param.get('alarmType', '')):
                     raw_limit = param.get('value', '')
                     if raw_limit and raw_limit not in ['~', '--------']:
                         limit_value = raw_limit.replace(',', '')
                 
                 # Build row based on client's PHA-Pro format
                 phapro_format = self.config.get("phapro_headers", "FLNG")
+                alarm_type = param.get('alarmType', '')
                 
                 if phapro_format == "HFS":
-                    # HF Sinclair 46-column format (with P&ID)
+                    # HF Sinclair 46-column format
                     row = [
-                        tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",  # Unit
-                        tag['tag_name'] if is_first_alarm_for_tag else "",  # Starting Tag Name
-                        tag['tag_name'] if is_first_alarm_for_tag else "",  # New Tag Name
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # Old Tag Description
-                        tag['desc'] or "~" if is_first_alarm_for_tag else "",  # New Tag Description
-                        tag['pid'] if is_first_alarm_for_tag else "",  # P&ID
-                        tag['range_min'] if is_first_alarm_for_tag else "",  # Range Min
-                        tag['range_max'] if is_first_alarm_for_tag else "",  # Range Max
-                        tag['eng_units'] or "~" if is_first_alarm_for_tag else "",  # Engineering Units
-                        tag_source if is_first_alarm_for_tag else "",  # Tag Source
-                        f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",  # Rationalization (Tag) Comment
-                        "Enabled" if is_first_alarm_for_tag else "",  # Old Tag Enable Status
-                        "Enabled" if is_first_alarm_for_tag else "",  # New Tag Enable Status
-                        alarm_type,  # Starting Alarm Type
-                        alarm_type,  # New Alarm Type
-                        indiv_enable,  # Old Alarm Enable Status
-                        indiv_enable,  # New Alarm Enable Status
-                        priority_code,  # Old Alarm Priority
-                        priority_code,  # New Alarm Priority
-                        priority_code,  # Old (BPCS) Priority
-                        priority_code,  # New (BPCS) Priority
-                        limit_value,  # Old Limit
-                        limit_value,  # New Limit
-                        self._clean_value(param.get('DeadBandValue', '')),  # Old Deadband
-                        self._clean_value(param.get('DeadBandValue', '')),  # New Deadband
-                        self._clean_value(param.get('DeadBandUnitValue', '')),  # Old Deadband Units
-                        self._clean_value(param.get('DeadBandUnitValue', '')),  # New Deadband Units
-                        self._clean_value(param.get('OnDelayValue', '')),   # Old On-Delay Time
-                        self._clean_value(param.get('OnDelayValue', '')),   # New On-Delay Time
-                        self._clean_value(param.get('OffDelayValue', '')),  # Old Off-Delay Time
-                        self._clean_value(param.get('OffDelayValue', '')),  # New Off-Delay Time
-                        "Not Started_x",  # Rationalization Status
-                        alarm_status,  # Alarm Status
-                        "",  # Rationalization (Alarm) Comment
-                        "",  # Alarm Class
-                        "",  # Recommendations
-                        param.get('PurposeOfAlarm', '~') or "~",  # Cause(s)
-                        param.get('ConsequenceOfNoAction', '~') or "~",  # Consequence(s)
-                        param.get('BoardOperator', '~') or "~",  # Inside Action(s)
-                        param.get('FieldOperator', '~') or "~",  # Outside Action(s)
-                        "",  # Escalation
-                        "",  # Limit Owner
-                        self.map_severity(param.get('consequence', '')),  # Personnel (severity)
-                        "",  # Public or Environment
-                        "",  # Costs / Production
-                        param.get('TimeToRespond', '') or "",  # Maximum Time to Resolve
+                        tag['unit'] if is_first_tag_for_unit and is_first_alarm_for_tag else "",
+                        tag['tag_name'] if is_first_alarm_for_tag else "",
+                        tag['tag_name'] if is_first_alarm_for_tag else "",
+                        tag['desc'] or "~" if is_first_alarm_for_tag else "",
+                        tag['desc'] or "~" if is_first_alarm_for_tag else "",
+                        tag['pid'] if is_first_alarm_for_tag else "",
+                        tag['range_min'] if is_first_alarm_for_tag else "",
+                        tag['range_max'] if is_first_alarm_for_tag else "",
+                        tag['eng_units'] or "~" if is_first_alarm_for_tag else "",
+                        tag_source if is_first_alarm_for_tag else "",
+                        f"Point Type = {tag['point_type']}" if is_first_alarm_for_tag and tag['point_type'] else "" if not is_first_alarm_for_tag else "",
+                        "Enabled" if is_first_alarm_for_tag else "",
+                        "Enabled" if is_first_alarm_for_tag else "",
+                        alarm_type, alarm_type,
+                        indiv_enable, indiv_enable,
+                        priority_code, priority_code, priority_code, priority_code,
+                        limit_value, limit_value,
+                        self._clean_value(param.get('DeadBandValue', '')),
+                        self._clean_value(param.get('DeadBandValue', '')),
+                        self._clean_value(param.get('DeadBandUnitValue', '')),
+                        self._clean_value(param.get('DeadBandUnitValue', '')),
+                        self._clean_value(param.get('OnDelayValue', '')),
+                        self._clean_value(param.get('OnDelayValue', '')),
+                        self._clean_value(param.get('OffDelayValue', '')),
+                        self._clean_value(param.get('OffDelayValue', '')),
+                        "Not Started_x", alarm_status,
+                        "", "",
+                        param.get('PurposeOfAlarm', '~') or "~",
+                        param.get('ConsequenceOfNoAction', '~') or "~",
+                        param.get('BoardOperator', '~') or "~",
+                        param.get('FieldOperator', '~') or "~",
+                        "", "",
+                        self.map_severity(param.get('consequence', '')),
+                        "", "",
+                        param.get('TimeToRespond', '') or "",
                     ]
                 else:
                     # FLNG 45-column format (default)
@@ -1141,33 +1028,27 @@ class AlarmTransformer:
                         indiv_enable,
                         priority_code,
                         priority_code,
-                        limit_value,  # Old Limit
-                        limit_value,  # New Limit
-                        self._clean_value(param.get('DeadBandValue', '')),  # Old Deadband
-                        self._clean_value(param.get('DeadBandValue', '')),  # New Deadband (same as old)
-                        self._clean_value(param.get('DeadBandUnitValue', '')),  # Old Deadband Units
-                        self._clean_value(param.get('DeadBandUnitValue', '')),  # New Deadband Units
-                        self._clean_value(param.get('OnDelayValue', '')),   # Old On-Delay
-                        self._clean_value(param.get('OnDelayValue', '')),   # New On-Delay (same as old)
-                        self._clean_value(param.get('OffDelayValue', '')),  # Old Off-Delay
-                        self._clean_value(param.get('OffDelayValue', '')),  # New Off-Delay (same as old)
+                        limit_value,
+                        limit_value,
+                        self._clean_value(param.get('DeadBandValue', '')),
+                        self._clean_value(param.get('DeadBandValue', '')),
+                        self._clean_value(param.get('DeadBandUnitValue', '')),
+                        self._clean_value(param.get('DeadBandUnitValue', '')),
+                        self._clean_value(param.get('OnDelayValue', '')),
+                        self._clean_value(param.get('OnDelayValue', '')),
+                        self._clean_value(param.get('OffDelayValue', '')),
+                        self._clean_value(param.get('OffDelayValue', '')),
                         "Not Started_x",
                         alarm_status,
-                        "",  # Alarm comment
-                        "",  # Limit owner
-                        "",  # HAZOP
-                        "",  # Suppression
-                        "",  # Class
+                        "", "", "", "", "",
                         param.get('PurposeOfAlarm', '~') or "~",
                         param.get('ConsequenceOfNoAction', '~') or "~",
                         param.get('BoardOperator', '~') or "~",
                         param.get('FieldOperator', '~') or "~",
-                        "",  # H&S
-                        "",  # Environment
-                        self.map_severity(param.get('consequence', '')),  # Financial (copy of max severity)
-                        "",  # Reputation
-                        "",  # Privilege
-                        self.map_severity(param.get('consequence', '')),  # Max Severity
+                        "", "",
+                        self.map_severity(param.get('consequence', '')),
+                        "", "",
+                        self.map_severity(param.get('consequence', '')),
                         param.get('TimeToRespond', '') or "",
                     ]
                 
@@ -1180,14 +1061,7 @@ class AlarmTransformer:
         # Convert to CSV with Latin-1 encoding for DynAMo compatibility
         output = io.StringIO()
         writer = csv.writer(output)
-        
-        # Use correct headers based on client
-        phapro_format = self.config.get("phapro_headers", "FLNG")
-        if phapro_format == "HFS":
-            writer.writerow(self.HFS_PHAPRO_HEADERS)
-        else:
-            writer.writerow(self.PHAPRO_HEADERS)
-        
+        writer.writerow(self.get_phapro_headers())
         writer.writerows(rows)
         
         # Encode as Latin-1 bytes for proper download
@@ -1391,69 +1265,47 @@ class AlarmTransformer:
         last_tag_name = ""
         last_tag_source = ""
         
-        # Helper to get column index with alternatives
-        def get_col_idx(primary, alternatives=None):
-            if primary in col_map:
-                return col_map[primary]
-            if alternatives:
-                for alt in alternatives:
-                    if alt in col_map:
-                        return col_map[alt]
-            return None
-        
-        # Pre-compute column indices
-        tag_name_idx = get_col_idx('Tag Name', ['New Tag Name'])
-        tag_source_idx = get_col_idx('Tag Source')
-        alarm_type_idx = get_col_idx('Alarm Type', ['New Alarm Type'])
-        new_limit_idx = get_col_idx('New Limit')
-        new_priority_idx = get_col_idx('New Priority', ['New (BPCS) Priority'])
-        max_severity_idx = get_col_idx('Max Severity')
-        ttr_idx = get_col_idx('TTR Range', ['Allowable TTR', 'Allowable Time to Respond'])
-        causes_idx = get_col_idx('Cause(s)')
-        consequences_idx = get_col_idx('Consequence(s)')
-        inside_idx = get_col_idx('Inside Action(s)')
-        outside_idx = get_col_idx('Outside Action(s)')
-        enable_status_idx = get_col_idx('New Individual Alarm Enable Status')
-        alarm_status_idx = get_col_idx('Alarm Status')
-        
         for row in reader:
             if not row or not any(row):
                 continue
             
             # Get tag name (propagate from previous row if blank - hierarchical format)
-            tag_name = row[tag_name_idx].strip() if tag_name_idx is not None and tag_name_idx < len(row) else ""
+            tag_name_idx = col_map.get('Tag Name', 1)
+            tag_name = row[tag_name_idx].strip() if tag_name_idx < len(row) else ""
             if tag_name:
                 last_tag_name = tag_name
-                if tag_source_idx is not None and tag_source_idx < len(row) and row[tag_source_idx].strip():
+                tag_source_idx = col_map.get('Tag Source', 8)
+                if tag_source_idx < len(row) and row[tag_source_idx].strip():
                     last_tag_source = row[tag_source_idx].strip()
             else:
                 tag_name = last_tag_name
             
             # Get alarm type
-            alarm_type = row[alarm_type_idx].strip() if alarm_type_idx is not None and alarm_type_idx < len(row) else ""
+            alarm_type_idx = col_map.get('Alarm Type', 12)
+            alarm_type = row[alarm_type_idx].strip() if alarm_type_idx < len(row) else ""
             
             if not alarm_type:
                 continue
             
-            # Helper to get column value
-            def get_val(idx, default=""):
+            # Helper to get column value (exact name match)
+            def get_col(name, default=""):
+                idx = col_map.get(name)
                 if idx is not None and idx < len(row):
-                    val = row[idx].strip()
-                    return val if val else default
+                    return row[idx].strip() or default
                 return default
             
             # Store PHA-Pro values for this tag/alarm combination
+            # Using standardized column names
             pha_changes[(tag_name, alarm_type)] = {
-                'new_limit': get_val(new_limit_idx, ''),
-                'new_priority': get_val(new_priority_idx, ''),
-                'max_severity': get_val(max_severity_idx, ''),
-                'ttr': get_val(ttr_idx, ''),
-                'causes': get_val(causes_idx, ''),
-                'consequences': get_val(consequences_idx, ''),
-                'inside_actions': get_val(inside_idx, ''),
-                'outside_actions': get_val(outside_idx, ''),
-                'new_enable_status': get_val(enable_status_idx, ''),
-                'alarm_status': get_val(alarm_status_idx, ''),
+                'new_limit': get_col('New Limit', ''),
+                'new_priority': get_col('New Priority', ''),
+                'max_severity': get_col('Max Severity', ''),
+                'ttr': get_col('TTR Range', '~'),
+                'causes': get_col('Cause(s)', '~'),
+                'consequences': get_col('Consequence(s)', '~'),
+                'inside_actions': get_col('Inside Action(s)', '~'),
+                'outside_actions': get_col('Outside Action(s)', '~'),
+                'new_enable_status': get_col('New Individual Alarm Enable Status', ''),
                 'tag_source': last_tag_source,
             }
         
@@ -1481,22 +1333,11 @@ class AlarmTransformer:
             mode = original_row[3] if len(original_row) > 3 else ""
             alarm_type = original_row[5]
             
-            # FILTER: Only include rows with mode = "NORMAL" or empty mode
-            # Some clients (HF Sinclair) have empty mode - treat as valid
+            # FILTER: Only include rows with mode = "NORMAL"
             # Skip IMPORT, Export, EXPORT, Base, etc.
-            empty_mode_valid = self.config.get("empty_mode_is_valid", False)
-            mode_upper = mode.strip().upper()
-            
-            if empty_mode_valid:
-                # Accept empty mode OR "NORMAL"
-                if mode_upper not in ["", "NORMAL"]:
-                    self.stats["skipped_modes"] += 1
-                    continue
-            else:
-                # Standard behavior: only accept "NORMAL"
-                if mode_upper != "NORMAL":
-                    self.stats["skipped_modes"] += 1
-                    continue
+            if mode.upper() != "NORMAL":
+                self.stats["skipped_modes"] += 1
+                continue
             
             # Skip duplicate (tag, alarm_type) combinations
             key = (tag_name, alarm_type)
@@ -1546,138 +1387,125 @@ class AlarmTransformer:
                 enforcement = "R" if is_sm else "M"
                 
                 # --- UPDATE COLUMN H (index 7): value/limit ---
-                # Only update if PHA-Pro has a non-empty value
                 new_limit = changes['new_limit']
                 at_lower = alarm_type.lower()
                 
-                if new_limit:  # Only process if PHA-Pro has a value
-                    # Handle special values
-                    if new_limit in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
-                        new_limit = '~'
-                    
-                    # Determine value based on alarm type
-                    if self.is_discrete(alarm_type):
-                        value = "~"
-                    elif "significant change" in at_lower or "pvsgch" in at_lower:
-                        value = "--------"
-                    elif new_limit and new_limit not in ["~", "", "-9999999"]:
-                        value = new_limit.replace(',', '')
-                        try:
-                            num = float(value)
-                            if num == int(num):
-                                value = str(int(num))
-                            else:
-                                value = f"{num:g}"
-                        except ValueError:
-                            value = new_limit
-                    else:
-                        value = "--------"
-                    
-                    output_row[7] = value
-                    
-                    # Update enforcement for value ONLY if alarm name exists
-                    if output_row[6]:
-                        output_row[8] = enforcement
-                # else keep original value
+                # Handle special values
+                if new_limit in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
+                    new_limit = '~'
+                
+                # Determine value based on alarm type
+                # For discrete alarms: use ~
+                # For analog alarms with no valid limit: use --------
+                # For analog alarms with valid limit: use the limit value
+                if self.is_discrete(alarm_type):
+                    # Discrete alarms: keep ~ (not --------)
+                    value = "~"
+                elif "significant change" in at_lower:
+                    # Significant change alarms: use --------
+                    value = "--------"
+                elif new_limit and new_limit not in ["~", "", "-9999999"]:
+                    # Has a valid limit value
+                    # Strip trailing zeros from decimal numbers (0.500 -> 0.5)
+                    value = new_limit.replace(',', '')  # Remove commas first
+                    try:
+                        # Try to parse as float and format without trailing zeros
+                        num = float(value)
+                        if num == int(num):
+                            value = str(int(num))  # Whole number
+                        else:
+                            # Format float, strip trailing zeros
+                            value = f"{num:g}"
+                    except ValueError:
+                        # Not a number, keep as-is
+                        value = new_limit
+                else:
+                    # No valid limit (empty, ~, or -9999999) - use --------
+                    # This covers Advisory Deviation, Deviation Low, Accumulator deviation, etc.
+                    value = "--------"
+                    value = "--------"
+                
+                output_row[7] = value  # Column H: value
+                
+                # Update enforcement for value ONLY if alarm name exists
+                if output_row[6]:  # alarmName exists
+                    output_row[8] = enforcement  # Column I: enforcement
                 
                 # --- UPDATE COLUMN K (index 10): priorityValue ---
-                # Only update if PHA-Pro has a non-empty priority
                 new_priority = changes['new_priority']
                 
-                if new_priority:  # Only process if PHA-Pro has a value
-                    if new_priority in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
-                        priority_value = '~'
-                    elif new_priority.upper() == 'NA':
-                        # NA = NOACTION = None (not Not Applicable)
-                        priority_value = 'None'
-                    else:
-                        # Map priority code to DynAMo value
-                        priority_map = {
-                            'U': 'Urgent', 'URGENT': 'Urgent',
-                            'E': 'EMERGNCY',  # Keep TDC format for TDC systems
-                            'C': 'Critical', 'CRITICAL': 'Critical',
-                            'H': 'High', 'HIGH': 'High',
-                            'M': 'Medium', 'MEDIUM': 'Medium',
-                            'L': 'Low', 'LOW': 'Low',
-                            'J': 'Journal', 'JOURNAL': 'Journal',
-                            'JO': 'Journal', 'P': 'PRINTER',
-                            'N': 'None', 'NONE': 'None',
-                        }
-                        priority_value = priority_map.get(new_priority.upper(), new_priority)
-                    
-                    output_row[10] = priority_value
-                    
-                    # Column L (priorityEnforcement): Only update if original had a value
-                    original_l = original_row[11].strip() if len(original_row) > 11 else ""
-                    if original_l:
-                        output_row[11] = enforcement
-                # else keep original priority
+                # Handle {n/a} priority
+                if new_priority in ['{n/a}', '(n/a)', 'n/a', '{N/A}', '(N/A)', 'N/A']:
+                    priority_value = '~'
+                else:
+                    # Map priority code to DynAMo value
+                    priority_map = {
+                        'U': 'Urgent', 'URGENT': 'Urgent',
+                        'C': 'Critical', 'CRITICAL': 'Critical',
+                        'H': 'High', 'HIGH': 'High',
+                        'M': 'Medium', 'MEDIUM': 'Medium',
+                        'L': 'Low', 'LOW': 'Low',
+                        'J': 'Journal', 'JOURNAL': 'Journal',
+                        'JO': 'Journal', 
+                        'N': 'None', 'NONE': 'None',
+                    }
+                    priority_value = priority_map.get(new_priority.upper(), new_priority)
+                
+                output_row[10] = priority_value  # Column K: priorityValue
+                
+                # Column L (priorityEnforcement): Only update if original had a value
+                # Don't add enforcement where it didn't exist (e.g., significant change, accumulator)
+                original_l = original_row[11].strip() if len(original_row) > 11 else ""
+                if original_l:
+                    output_row[11] = enforcement  # Column L: priorityEnforcement
+                # else keep original (empty)
                 
                 # --- UPDATE COLUMN M (index 12): consequence ---
-                # Only update if PHA-Pro has a non-empty value
                 max_severity = changes['max_severity']
-                if max_severity:  # Only process if PHA-Pro has a value
-                    if max_severity in ['A', 'B', 'C', 'D', 'E']:
-                        output_row[12] = max_severity
-                    elif max_severity.upper() in ['NONE', '(NONE)', '(N)', 'N']:
-                        output_row[12] = '(None)'
-                    else:
-                        # Map text to DynAMo severity names
-                        severity_map = {
-                            'CRITICAL': 'CRITICAL',
-                            'STANDARD': 'STANDARD', 
-                            'MINOR': 'MINOR',
-                            'CATASTROPHIC': 'CATASTROPHIC',
-                            'MAJOR': 'MAJOR',
-                            'MODERATE': 'MODERATE',
-                            'INSIGNIFICANT': 'INSIGNIFICANT',
-                        }
-                        output_row[12] = severity_map.get(max_severity.upper(), max_severity)
+                if max_severity in ['A', 'B', 'C', 'D', 'E']:
+                    output_row[12] = max_severity
+                elif max_severity and max_severity.upper() in ['NONE', '(NONE)', '(N)', 'N']:
+                    output_row[12] = '(None)'  # Standardize to (None)
+                elif max_severity:
+                    output_row[12] = max_severity
                 # else keep original
                 
                 # --- UPDATE COLUMN N (index 13): TimeToRespond ---
-                # Only update if PHA-Pro has a non-empty value
                 ttr = changes['ttr']
-                if ttr:  # Only process if PHA-Pro has a value
+                if ttr and ttr != '~':
                     output_row[13] = ttr
-                # else keep original
                 
                 # --- UPDATE COLUMN Q (index 16): Purpose of Alarm (Cause) ---
-                # Only update if PHA-Pro has a non-empty value
+                # Always update from PHA-Pro (even if ~)
                 causes = changes['causes']
-                if causes:  # Only process if PHA-Pro has a value
+                if causes:
                     causes = self._fix_encoding(causes)
                     output_row[16] = causes
-                # else keep original
                 
                 # --- UPDATE COLUMN R (index 17): Consequence of No Action ---
-                # Only update if PHA-Pro has a non-empty value
+                # Always update from PHA-Pro (even if ~)
                 consequences = changes['consequences']
-                if consequences:  # Only process if PHA-Pro has a value
+                if consequences:
                     consequences = self._fix_encoding(consequences)
                     output_row[17] = consequences
-                # else keep original
                 
                 # --- UPDATE COLUMN S (index 18): Board Operator (Inside Action) ---
-                # Only update if PHA-Pro has a non-empty value
+                # Always update from PHA-Pro (even if ~)
                 inside_actions = changes['inside_actions']
-                if inside_actions:  # Only process if PHA-Pro has a value
+                if inside_actions:
                     inside_actions = self._fix_encoding(inside_actions)
                     output_row[18] = inside_actions
-                # else keep original
                 
                 # --- UPDATE COLUMN T (index 19): Field Operator (Outside Action) ---
-                # Only update if PHA-Pro has a non-empty value
+                # Always update from PHA-Pro (even if ~)
                 outside_actions = changes['outside_actions']
-                if outside_actions:  # Only process if PHA-Pro has a value
+                if outside_actions:
                     outside_actions = self._fix_encoding(outside_actions)
                     output_row[19] = outside_actions
-                # else keep original
                 
                 # --- UPDATE COLUMN Z (index 25): DisabledValue ---
-                # Only update if PHA-Pro has a non-empty value
                 new_enable_status = changes['new_enable_status']
-                if new_enable_status:  # Only process if PHA-Pro has a value
+                if new_enable_status:
                     # Map PHA-Pro enable status to DynAMo DisabledValue
                     # PHA-Pro: TRUE = enabled, FALSE = disabled
                     # DynAMo DisabledValue: TRUE = alarm active, FALSE = alarm disabled
@@ -2192,38 +2020,17 @@ def main():
         
         # Request New Client/Area button
         import urllib.parse as sidebar_urllib
-        request_subject = sidebar_urllib.quote("New Client/Area Request - Alarm Rationalization Platform")
-        request_body_text = f"""Hi Greg,
-
-I need a new client or unit/area added to the Alarm Rationalization Platform.
-
-CURRENT SELECTION:
-Client: {client_options.get(selected_client, 'Unknown')}
-Area: {area_options.get(selected_area, 'N/A') if selected_area else 'N/A'}
-
-NEW REQUEST:
-[ ] New Client (different company/site)
-[ ] New Unit/Area (within existing client)
-
-Details:
-- Client/Site Name: 
-- Unit/Area Name: 
-- DCS System: 
-- Any special requirements: 
-
-Thanks,
-""" + st.session_state.get('username', '[Your name]')
-        request_body = sidebar_urllib.quote(request_body_text)
-        
+        request_subject = sidebar_urllib.quote("New Client/Area Request - Alarm Platform")
+        request_body = sidebar_urllib.quote("Hi Greg,\n\nI need a new client or unit/area added.\n\nCurrent: " + client_options.get(selected_client, "Unknown") + "\nArea: " + (area_options.get(selected_area, "N/A") if selected_area else "N/A") + "\n\nNew Request:\n- Client/Site: \n- Unit/Area: \n- DCS System: \n\nThanks")
         request_link = f"mailto:greg.pajak@aesolutions.com?subject={request_subject}&body={request_body}"
         st.markdown(
             f'<a href="{request_link}" style="text-decoration: none;">'
             f'<div style="background-color: #2d5a87; color: white; padding: 8px 12px; border-radius: 5px; text-align: center; font-size: 0.85rem; margin-top: 10px;">'
-            f'📧 Request New Client/Area'
+            f'Request New Client/Area'
             f'</div></a>',
             unsafe_allow_html=True
         )
-        st.caption("Don't see your client or unit? Click to request.")
+        st.caption("Don\'t see your client or unit? Click to request.")
         
         st.markdown("---")
         
@@ -2287,26 +2094,13 @@ Thanks,
         st.markdown("---")
         st.markdown("### ðŸ“Š About")
         st.markdown(f"""
-        **Version:** 3.23  
+        **Version:** 3.22  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
         
         with st.expander("ðŸ“ Version History"):
             st.markdown("""
-            **v3.23** - Jan 2026
-            - Added Unit/Area selection within each client
-            - FLNG: LQF - Unit 17, PTF - Unit 61
-            - HF Sinclair: North Console (more areas coming)
-            - "Request New Client/Area" email button
-            - P&ID column added to HFS format (46 columns)
-            - Unit extraction: only leading digits (NPHSAOP -> 00)
-            - Units always 2 digits (5 -> 05)
-            - "Show Expected PHA-Pro Columns" preview button
-            - HF Sinclair support: empty mode handling, TDC priority names
-            - Flexible column name matching for PHA-Pro exports
-            - Blank fields in PHA-Pro preserve original DynAMo values
-            
             **v3.22** - Jan 2026
             - Fixed Unit column: only shows on first row of each unit group (not every tag)
             
@@ -2496,28 +2290,6 @@ Thanks,
                     help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas"
                 )
             
-            # Show expected output columns button
-            with st.expander("📋 Show Expected PHA-Pro Output Columns"):
-                temp_transformer = AlarmTransformer(selected_client, selected_area)
-                expected_headers = temp_transformer.get_phapro_headers()
-                
-                st.markdown(f"**{pha_tool} Import Format - {len(expected_headers)} Columns**")
-                st.markdown("Verify your PHA-Pro import screen has these columns in this exact order:")
-                st.markdown("---")
-                
-                # Display in 3 columns for readability
-                col_count = 3
-                cols = st.columns(col_count)
-                headers_per_col = (len(expected_headers) + col_count - 1) // col_count
-                
-                for i, header in enumerate(expected_headers):
-                    col_idx = i // headers_per_col
-                    with cols[col_idx]:
-                        st.markdown(f"**{i+1}.** {header}")
-                
-                st.markdown("---")
-                st.info("⚠️ **Important:** Before importing to PHA-Pro, verify your Tag Import screen has all these columns in the correct order. Mismatched columns will cause import errors.")
-            
             # Unit detection and selection (only for DynAMo parser)
             if parser_type != "abb":
                 unit_filter = ""
@@ -2544,7 +2316,7 @@ Thanks,
                         st.markdown("### ðŸ“Š Units Detected")
                         
                         # For FLNG, show all methods and let user choose
-                        if parser_type == "dynamo":  # Show unit options for ALL DynAMo clients
+                        if selected_client == "flng":
                             col_a, col_b, col_c = st.columns(3)
                             
                             with col_a:
@@ -2624,7 +2396,7 @@ Best when you need granular unit breakdown.
                 # Store the method choice in session state for use during transform
                 if 'unit_method_choice' not in st.session_state:
                     st.session_state.unit_method_choice = "tag_prefix"
-                if uploaded_file is not None and parser_type == "dynamo":
+                if uploaded_file is not None and selected_client == "flng":
                     st.session_state.unit_method_choice = unit_method_choice
             else:
                 # ABB uses fixed unit from config - only show after file uploaded
@@ -2716,7 +2488,7 @@ Best when you need granular unit breakdown.
                 # Get parser type
                 parser_type = client_config.get("parser", "dynamo")
                 
-                # Create transformer with selected area
+                # Create transformer
                 transformer = AlarmTransformer(selected_client, selected_area)
                 
                 # Initialize variables for change report
