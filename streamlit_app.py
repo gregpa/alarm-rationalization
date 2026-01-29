@@ -2492,19 +2492,25 @@ Best when you need granular unit breakdown.
             expected_headers = temp_transformer.get_phapro_headers()
             
             with st.expander(f"📋 View Expected PHA-Pro Output Columns ({len(expected_headers)} columns)", expanded=False):
-                # Create a DataFrame for nice display
-                col_df = pd.DataFrame({
-                    "#": range(1, len(expected_headers) + 1),
-                    "Column Name": expected_headers
-                })
-                st.dataframe(col_df, use_container_width=True, hide_index=True, height=400)
+                # Display in 3 columns for better readability
+                num_cols = 3
+                cols = st.columns(num_cols)
+                items_per_col = (len(expected_headers) + num_cols - 1) // num_cols
                 
-                # Copy-friendly version
-                st.markdown("**Copy-friendly list:**")
+                for col_idx, col in enumerate(cols):
+                    start_idx = col_idx * items_per_col
+                    end_idx = min(start_idx + items_per_col, len(expected_headers))
+                    
+                    with col:
+                        for i in range(start_idx, end_idx):
+                            st.markdown(f"`{i+1:2d}` {expected_headers[i]}")
+                
+                st.markdown("---")
+                st.markdown("**📋 Copy-friendly list:**")
                 st.code(",".join(expected_headers), language=None)
             
             columns_confirmed = st.checkbox(
-                "I confirm these columns match my PHA-Pro import template",
+                "✓ I confirm these columns match my PHA-Pro import template",
                 key="forward_columns_confirmed"
             )
             
@@ -2518,25 +2524,30 @@ Best when you need granular unit breakdown.
             expected_headers = temp_transformer.get_phapro_headers()
             
             with st.expander(f"📋 View Required PHA-Pro Input Columns ({len(expected_headers)} columns)", expanded=False):
-                # Show all expected headers
-                col_df = pd.DataFrame({
-                    "#": range(1, len(expected_headers) + 1),
-                    "Column Name": expected_headers
-                })
-                st.dataframe(col_df, use_container_width=True, hide_index=True, height=400)
+                # Display in 3 columns for better readability
+                num_cols = 3
+                cols = st.columns(num_cols)
+                items_per_col = (len(expected_headers) + num_cols - 1) // num_cols
+                
+                for col_idx, col in enumerate(cols):
+                    start_idx = col_idx * items_per_col
+                    end_idx = min(start_idx + items_per_col, len(expected_headers))
+                    
+                    with col:
+                        for i in range(start_idx, end_idx):
+                            st.markdown(f"`{i+1:2d}` {expected_headers[i]}")
                 
                 st.markdown("---")
-                st.markdown("**Key columns used for transformation:**")
+                st.markdown("**🔑 Key columns used for transformation:**")
                 for col_name, purpose in required_cols.items():
-                    st.markdown(f"- **{col_name}**: {purpose}")
+                    st.markdown(f"- **{col_name}**: _{purpose}_")
                 
-                # Copy-friendly version
                 st.markdown("---")
-                st.markdown("**Copy-friendly list:**")
+                st.markdown("**📋 Copy-friendly list:**")
                 st.code(",".join(expected_headers), language=None)
             
             columns_confirmed = st.checkbox(
-                "I confirm my PHA-Pro export has these columns",
+                "✓ I confirm my PHA-Pro export has these columns",
                 key="reverse_columns_confirmed"
             )
         
