@@ -138,6 +138,193 @@ def load_client_configs() -> Dict[str, Any]:
 _EXTERNAL_CONFIGS = load_client_configs()
 
 
+def validate_client_configs(configs: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Validate client configurations and return list of warnings/errors.
+
+    Returns:
+        List of dicts with 'level' (warning/error), 'client', and 'message'
+    """
+    issues = []
+
+    if not configs:
+        return issues
+
+    # Valid values for validation
+    valid_parsers = {'dynamo', 'abb'}
+    valid_unit_methods = {'TAG_PREFIX', 'ASSET_PARENT', 'ASSET_CHILD', 'FIXED'}
+    valid_rule_types = {'exact', 'prefix', 'contains', 'in'}
+    required_fields = ['name', 'parser', 'default_source']
+
+    for client_id, config in configs.items():
+        if not isinstance(config, dict):
+            issues.append({
+                'level': 'error',
+                'client': client_id,
+                'message': 'Configuration is not a valid dictionary'
+            })
+            continue
+
+        # Check required fields
+        for field in required_fields:
+            if field not in config:
+                issues.append({
+                    'level': 'error',
+                    'client': client_id,
+                    'message': f'Missing required field: {field}'
+                })
+
+        # Validate parser type
+        parser = config.get('parser', '')
+        if parser and parser not in valid_parsers:
+            issues.append({
+                'level': 'error',
+                'client': client_id,
+                'message': f'Invalid parser "{parser}". Must be: {", ".join(valid_parsers)}'
+            })
+
+        # Validate unit_method
+        unit_method = config.get('unit_method', '')
+        if unit_method and unit_method not in valid_unit_methods:
+            issues.append({
+                'level': 'warning',
+                'client': client_id,
+                'message': f'Unknown unit_method "{unit_method}". Expected: {", ".join(valid_unit_methods)}'
+            })
+
+        # Validate TAG_PREFIX has unit_digits
+        if unit_method == 'TAG_PREFIX' and 'unit_digits' not in config:
+            issues.append({
+                'level': 'warning',
+                'client': client_id,
+                'message': 'TAG_PREFIX method requires unit_digits (defaulting to 2)'
+            })
+
+        # Validate FIXED has unit_value
+        if unit_method == 'FIXED' and 'unit_value' not in config:
+            issues.append({
+                'level': 'error',
+                'client': client_id,
+                'message': 'FIXED unit_method requires unit_value'
+            })
+
+        # Validate tag_source_rules
+        rules = config.get('tag_source_rules', [])
+        if rules:
+            for i, rule in enumerate(rules):
+                if not isinstance(rule, dict):
+                    issues.append({
+                        'level': 'error',
+                        'client': client_id,
+                        'message': f'tag_source_rules[{i}] is not a valid dictionary'
+                    })
+                    continue
+
+                # Check rule has at least one match type
+                match_types = set(rule.keys()) & valid_rule_types
+                if not match_types:
+                    issues.append({
+                        'level': 'warning',
+                        'client': client_id,
+                        'message': f'tag_source_rules[{i}] has no match type ({", ".join(valid_rule_types)})'
+                    })
+
+                # Check rule has source
+                if 'source' not in rule:
+                    issues.append({
+                        'level': 'error',
+                        'client': client_id,
+                        'message': f'tag_source_rules[{i}] missing "source" field'
+                    })
+
+        # Validate areas
+        areas = config.get('areas', {})
+        if areas:
+            for area_id, area_config in areas.items():
+                if not isinstance(area_config, dict):
+                    issues.append({
+                        'level': 'warning',
+                        'client': client_id,
+                        'message': f'Area "{area_id}" is not a valid dictionary'
+                    })
+                elif 'name' not in area_config:
+                    issues.append({
+                        'level': 'warning',
+                        'client': client_id,
+                        'message': f'Area "{area_id}" missing "name" field'
+                    })
+
+    return issues
+
+
+def generate_template_csv(client_id: str, direction: str) -> Tuple[bytes, str]:
+    """
+    Generate a sample/template file for a client and direction.
+
+    Returns:
+        Tuple of (file_bytes, filename)
+    """
+    configs = AlarmTransformer.get_client_configs()
+    config = configs.get(client_id, {})
+    parser = config.get('parser', 'dynamo')
+    client_name = config.get('name', client_id).replace(' ', '_')
+
+    if direction == 'forward':
+        if parser == 'dynamo':
+            # DynAMo template - multi-schema CSV
+            template = '''"'_Variable","name","_DCSVariable","assetPath","controller","source","alarmGroup","description","pointType"
+"'_Variable","SAMPLE_TAG_01","_DCSVariable","/Assets/Unit01/Area1","Controller1","Source1","AlarmGroup1","Sample analog tag","ANA"
+"'_Variable","SAMPLE_TAG_01","_DCS","PSI","ANA","100","0","Sample Description for SAMPLE_TAG_01","","","Unit01"
+"'_Variable","SAMPLE_TAG_01","_Parameter","NORMAL","HI","HI","HI_Alarm","85","M","HighPriority","7","M","MODERATE","5","","","Purpose of high alarm","Consequence if not addressed","Board operator action","Field operator action","","","","","","TRUE","","","","","10","","","5","","","2","","","%",""
+"'_Variable","SAMPLE_TAG_01","_Parameter","NORMAL","HIHI","HIHI","HIHI_Alarm","95","M","CriticalPriority","3","M","SEVERE","3","","","Purpose of critical alarm","Critical consequence","Immediate action required","Emergency response","","","","","","TRUE","","","","","5","","","2","","","1","","","%",""
+"'_Variable","SAMPLE_TAG_02","_DCSVariable","/Assets/Unit01/Area1","Controller1","Source1","AlarmGroup1","Sample discrete tag","STA"
+"'_Variable","SAMPLE_TAG_02","_DCS","","STA","","","Sample Description for SAMPLE_TAG_02","","","Unit01"
+"'_Variable","SAMPLE_TAG_02","_Parameter","NORMAL","","STATE","State_Alarm","","M","MediumPriority","8","M","MINOR","10","","","Purpose of state alarm","Consequence of state","Check status","Verify field conditions","","","","","","TRUE","","","","","","","","","","","","","","",""
+"'_Variable","SAMPLE_TAG_02","_Notes","This is a sample note for SAMPLE_TAG_02"'''
+            filename = f"template_{client_name}_dynamo_export.csv"
+        else:
+            # ABB template - would be Excel, return message
+            template = '''Note: ABB clients use Excel format for forward transformation.
+Please export from ABB 800xA alarm database as Excel (.xlsx) file.
+
+Expected columns:
+- Tag Name
+- Description
+- Alarm Type
+- Limit/Setpoint
+- Priority
+- Severity
+- Enable Status
+- Unit
+- Min Range
+- Max Range
+- Engineering Units'''
+            filename = f"template_{client_name}_abb_info.txt"
+    else:
+        # Reverse direction - PHA-Pro export template
+        if parser == 'dynamo':
+            # Check if HFS format
+            if config.get('phapro_headers') == 'HFS':
+                template = '''"Unit","Starting Tag Name","New Tag Name","Old Tag Description","New Tag Description","P&ID","Range Min","Range Max","Engineering Units","Tag Source","Rationalization (Tag) Comment","Old Tag Enable Status","New Tag Enable Status","Starting Alarm Type","New Alarm Type","Old Alarm Enable Status","New Alarm Enable Status","Old (BPCS) Priority","New (BPCS) Priority","Old Limit","New Limit","Old Deadband","New Deadband","Old Deadband Units","New Deadband Units","Old On-Delay Time","New On-Delay Time","Old Off-Delay Time","New Off-Delay Time","Rationalization Status","Alarm Status","Rationalization (Alarm) Comment","Alarm Class","Cause(s)","Consequence(s)","Inside Action(s)","Outside Action(s)","Escalation","Limit Owner","Personnel","Public or Environment","Costs / Production","Maximum Time to Resolve"
+"01","01TI-1001","01TI-1001","Temperature Indicator","Temperature Indicator","P&ID-001","0","100","degF","Honeywell Experion","","","","HI","HI","Enabled","Enabled","M","H","85","90","2","2","%","%","10","10","5","5","Rationalized","Active","Updated priority","","High temperature","Process upset","Reduce feed rate","Check cooling water","","Operations","","","","5"'''
+                filename = f"template_{client_name}_phapro_export.csv"
+            else:
+                template = '''"Unit","Tag Name","Old Tag Description","New Tag Description","P&ID","Range Min","Range Max","Engineering Units","Tag Source","Rationalization (Tag) Comment","Old Tag Enable Status","New Tag Enable Status","Alarm Type","Old Individual Alarm Enable Status","New Individual Alarm Enable Status","Old (BPCS) Priority","New (BPCS) Priority","Old Limit","New Limit","Old Deadband","New Deadband","Old Deadband Units","New Deadband Units","Old On-Delay Time","New On-Delay Time","Old Off-Delay Time","New Off-Delay Time","Rationalization Status","Alarm Status","Rationalization (Alarm) Comment","Limit Owner","Alarm HAZOP Comment","Alarm Suppression Notes","Alarm Class","Cause(s)","Consequence(s)","Inside Action(s)","Outside Action(s)","Health and Safety","Environment","Financial","Reputation","Privilege to Operate","Max Severity","Allowable Time to Respond"
+"17","17TI5879","Temperature Transmitter","Temperature Transmitter","P&ID-17-001","0","200","degF","Honeywell Experion (DCS)","","","","HI","Enabled","Enabled","M","H","175","180","2","2","%","%","10","10","5","5","Rationalized","Active","Priority upgraded","","","","","High temperature alarm","Potential equipment damage","Reduce firing rate","Check cooling system","","","","","","B","5"'''
+                filename = f"template_{client_name}_phapro_export.csv"
+        else:
+            # ABB PHA-Pro export
+            template = '''"Unit","Starting Tag Name","New Tag Name","Old Tag Description","New Tag Description","Tag Source","Rationalization (Tag) Comment","Range Min","Range Max","Engineering Units","Starting Alarm Type","New Alarm Type","Old Alarm Enable Status","New Alarm Enable Status","Old Alarm Severity","New Alarm Severity","Old Limit","New Limit","Old (BPCS) Priority","New (BPCS) Priority","Rationalization Status","Alarm Status","Rationalization (Alarm) Comment"
+"Bessemer","TI-1001","TI-1001","Temperature Indicator","Temperature Indicator","ABB 800xA","","0","100","degC","HI","HI","Enabled","Enabled","2","1","85","90","Medium","High","Rationalized","Active","Priority updated"'''
+            filename = f"template_{client_name}_phapro_export.csv"
+
+    return template.encode('utf-8'), filename
+
+
+# Global config validation cache
+_CONFIG_WARNINGS = validate_client_configs(_EXTERNAL_CONFIGS) if _EXTERNAL_CONFIGS else []
+
+
 def _preview_file_data(
     file_content: str,
     transformer: 'AlarmTransformer',
@@ -2607,7 +2794,22 @@ def main():
         
         st.markdown("---")
         st.markdown("### ⚙️ Configuration")
-        
+
+        # Show config warnings if any
+        if _CONFIG_WARNINGS:
+            errors = [w for w in _CONFIG_WARNINGS if w['level'] == 'error']
+            warnings = [w for w in _CONFIG_WARNINGS if w['level'] == 'warning']
+
+            if errors:
+                with st.expander(f"⛔ {len(errors)} Config Error(s)", expanded=True):
+                    for err in errors:
+                        st.error(f"**{err['client']}**: {err['message']}")
+
+            if warnings:
+                with st.expander(f"⚠️ {len(warnings)} Config Warning(s)"):
+                    for warn in warnings:
+                        st.warning(f"**{warn['client']}**: {warn['message']}")
+
         # Build client options from configs
         client_options = {
             client_id: config["name"] 
@@ -2680,9 +2882,30 @@ def main():
             format_func=lambda x: "Alarm Database → PHA-Pro" if x == "forward" else "PHA-Pro → Alarm Database",
             help="Forward: Create PHA-Pro import from alarm database export\nReverse: Create alarm database import from PHA-Pro export"
         )
-        
+
+        # Template downloads section
+        with st.expander("📥 Download Template File"):
+            st.caption("Get a sample file showing the expected format")
+            template_data, template_filename = generate_template_csv(selected_client, direction)
+
+            if direction == "forward":
+                template_label = f"Sample {dcs_name} Export"
+                template_help = f"Example of the expected {dcs_name} export format"
+            else:
+                template_label = f"Sample {pha_tool} Export"
+                template_help = f"Example of the expected {pha_tool} export format"
+
+            st.download_button(
+                label=f"⬇️ {template_label}",
+                data=template_data,
+                file_name=template_filename,
+                mime="text/csv" if template_filename.endswith('.csv') else "text/plain",
+                help=template_help,
+                use_container_width=True
+            )
+
         st.markdown("---")
-        
+
         # Help section
         with st.expander("ℹ️ How to Use"):
             if client_config.get("parser", "dynamo") == "dynamo":
@@ -2730,7 +2953,7 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 3.23  
+        **Version:** 3.25  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)

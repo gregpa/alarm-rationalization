@@ -523,10 +523,12 @@ Areas:
 | `map_priority()` | Priority names ↔ codes |
 | `csv_to_excel()` | Convert output to Excel format |
 | `add_to_history()` | Track transformations for re-download |
+| `validate_client_configs()` | Validate YAML config structure |
+| `generate_template_csv()` | Generate sample input files |
 
 ---
 
-## FEATURES (v3.24)
+## FEATURES (v3.25)
 
 ### Structured Logging
 - Logs stored in session state
@@ -552,6 +554,16 @@ Areas:
 - Lists detected units
 - Identifies potential issues
 
+### Configuration Validator
+- Validates YAML config on startup
+- Shows errors (blocking) and warnings in sidebar
+- Checks: required fields, valid parser types, unit methods, rule syntax
+
+### Template Downloads
+- Sample input files for each client/direction
+- Available in sidebar "Download Template File" section
+- Shows expected schema structure
+
 ---
 
 ## TESTING
@@ -559,7 +571,7 @@ Areas:
 ### Running Tests
 
 ```bash
-# All 43 tests
+# All 54 tests
 pytest tests/ -v
 
 # Specific test class
@@ -586,6 +598,8 @@ pytest tests/ -v --cov=streamlit_app
 | TestExternalConfigLoader | 5 | YAML loading |
 | TestDataPreview | 4 | Preview feature |
 | TestConfigFallback | 2 | Hardcoded fallback |
+| TestConfigValidator | 5 | Config validation |
+| TestTemplateGenerator | 6 | Template downloads |
 
 ---
 

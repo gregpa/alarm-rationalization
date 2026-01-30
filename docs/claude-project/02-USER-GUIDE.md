@@ -24,6 +24,22 @@
 
 ---
 
+## Template Files
+
+Not sure what format your input file should be? Download a template file:
+
+1. Select your client and transformation direction
+2. Expand "Download Template File" in the sidebar
+3. Click the download button to get a sample file
+4. Use the template as a reference for the expected format
+
+Templates show:
+- Expected column headers
+- Sample data rows
+- Proper schema structure (for DynAMo files)
+
+---
+
 ## Forward Transformation (DCS → PHA-Pro)
 
 ### Purpose
@@ -198,6 +214,15 @@ History is stored in your browser session (cleared on page refresh).
 
 **Solution**: Upload the same file you used for the forward transformation.
 
+### Configuration Warnings/Errors
+
+**Cause**: The client configuration file (clients.yaml) has issues.
+
+**Solution**:
+- Errors (red): Contact administrator - these block functionality
+- Warnings (yellow): Non-critical issues, app still works but may have unexpected behavior
+- Look for details in the sidebar "Config Error(s)" or "Config Warning(s)" expanders
+
 ---
 
 ## Tips
@@ -207,6 +232,7 @@ History is stored in your browser session (cleared on page refresh).
 3. **Check skipped rows** - Click the info expander to understand why rows were skipped
 4. **Review P&IDs** - Mark any "UNKNOWN" P&ID references before PHA-Pro import
 5. **Download both formats** - CSV for import, Excel for review
+6. **Download templates** - If unsure about file format, download a template first
 
 ---
 

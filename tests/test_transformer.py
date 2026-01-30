@@ -477,3 +477,129 @@ class TestConfigFallback:
         # Check same clients exist in both
         hardcoded = AlarmTransformer._HARDCODED_CONFIGS
         assert set(hardcoded.keys()) == set(yaml_configs.keys())
+
+
+class TestConfigValidator:
+    """Test configuration validation functionality."""
+
+    def test_validate_function_exists(self):
+        """Validator function should be importable."""
+        from streamlit_app import validate_client_configs
+        assert callable(validate_client_configs)
+
+    def test_valid_config_returns_no_errors(self):
+        """Valid config should return no issues."""
+        from streamlit_app import validate_client_configs
+
+        valid_config = {
+            'test_client': {
+                'name': 'Test Client',
+                'parser': 'dynamo',
+                'default_source': 'Test Source',
+                'unit_method': 'TAG_PREFIX',
+                'unit_digits': 2
+            }
+        }
+
+        issues = validate_client_configs(valid_config)
+        errors = [i for i in issues if i['level'] == 'error']
+        assert len(errors) == 0
+
+    def test_missing_required_field_returns_error(self):
+        """Missing required field should return error."""
+        from streamlit_app import validate_client_configs
+
+        invalid_config = {
+            'test_client': {
+                'name': 'Test Client',
+                # missing 'parser' and 'default_source'
+            }
+        }
+
+        issues = validate_client_configs(invalid_config)
+        errors = [i for i in issues if i['level'] == 'error']
+        assert len(errors) >= 2  # Should have errors for parser and default_source
+
+    def test_invalid_parser_returns_error(self):
+        """Invalid parser type should return error."""
+        from streamlit_app import validate_client_configs
+
+        invalid_config = {
+            'test_client': {
+                'name': 'Test Client',
+                'parser': 'invalid_parser',
+                'default_source': 'Test Source'
+            }
+        }
+
+        issues = validate_client_configs(invalid_config)
+        errors = [i for i in issues if i['level'] == 'error']
+        assert any('invalid_parser' in e['message'].lower() for e in errors)
+
+    def test_current_configs_validate_successfully(self):
+        """Current YAML configs should pass validation."""
+        from streamlit_app import validate_client_configs, AlarmTransformer
+
+        configs = AlarmTransformer.get_client_configs()
+        issues = validate_client_configs(configs)
+        errors = [i for i in issues if i['level'] == 'error']
+        assert len(errors) == 0, f"Current configs have errors: {errors}"
+
+
+class TestTemplateGenerator:
+    """Test template file generation functionality."""
+
+    def test_generate_template_function_exists(self):
+        """Template generator function should be importable."""
+        from streamlit_app import generate_template_csv
+        assert callable(generate_template_csv)
+
+    def test_forward_template_returns_bytes(self):
+        """Forward template should return bytes and filename."""
+        from streamlit_app import generate_template_csv
+
+        data, filename = generate_template_csv('flng', 'forward')
+        assert isinstance(data, bytes)
+        assert isinstance(filename, str)
+        assert 'template' in filename.lower()
+
+    def test_reverse_template_returns_bytes(self):
+        """Reverse template should return bytes and filename."""
+        from streamlit_app import generate_template_csv
+
+        data, filename = generate_template_csv('flng', 'reverse')
+        assert isinstance(data, bytes)
+        assert isinstance(filename, str)
+        assert 'template' in filename.lower()
+
+    def test_dynamo_forward_template_has_schemas(self):
+        """DynAMo forward template should contain expected schemas."""
+        from streamlit_app import generate_template_csv
+
+        data, _ = generate_template_csv('flng', 'forward')
+        content = data.decode('utf-8')
+
+        assert '_DCSVariable' in content
+        assert '_DCS' in content
+        assert '_Parameter' in content
+
+    def test_hfs_reverse_template_has_correct_columns(self):
+        """HFS reverse template should have 43-column format."""
+        from streamlit_app import generate_template_csv
+
+        data, _ = generate_template_csv('hfs_artesia', 'reverse')
+        content = data.decode('utf-8')
+
+        # HFS format should have specific columns
+        assert 'Starting Tag Name' in content
+        assert 'New Tag Name' in content
+
+    def test_abb_forward_template_mentions_excel(self):
+        """ABB forward template should mention Excel format."""
+        from streamlit_app import generate_template_csv
+
+        data, filename = generate_template_csv('rt_bessemer', 'forward')
+        content = data.decode('utf-8')
+
+        # ABB uses Excel, so template should mention that
+        assert 'excel' in content.lower() or '.xlsx' in content.lower()
