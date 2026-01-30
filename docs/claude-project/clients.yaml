@@ -1,0 +1,231 @@
+# Client Configurations for Alarm Rationalization Platform
+# This file can be edited without modifying Python code
+# The app will fall back to hardcoded defaults if this file fails to load
+
+# =============================================================================
+# FREEPORT LNG
+# =============================================================================
+flng:
+  name: "Freeport LNG"
+  vendor: "Honeywell Experion/DynAMo"
+  dcs_name: "DynAMo"
+  pha_tool: "PHA-Pro"
+  parser: "dynamo"
+  unit_method: "TAG_PREFIX"
+  unit_digits: 2
+  default_source: "Honeywell TDC (DCS)"
+  default_area: "lqf_u17"
+
+  tag_source_rules:
+    - prefix: "SM"
+      field: "point_type"
+      source: "Honeywell Safety Manager (SIS)"
+      enforcement: "R"
+    - contains: "."
+      field: "tag_name"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - in: ["ANA", "STA"]
+      field: "point_type"
+      source: "Honeywell Experion (SCADA)"
+      enforcement: "M"
+
+  areas:
+    lqf_u17:
+      name: "LQF - Unit 17"
+      description: "Liquefaction Facility Unit 17"
+    ptf_u61:
+      name: "PTF - Unit 61"
+      description: "Pretreatment Facility Unit 61"
+
+# =============================================================================
+# HF SINCLAIR - ARTESIA
+# =============================================================================
+hfs_artesia:
+  name: "HF Sinclair - Artesia"
+  vendor: "Honeywell Experion/DynAMo"
+  dcs_name: "DynAMo"
+  pha_tool: "PHA-Pro"
+  parser: "dynamo"
+  unit_method: "TAG_PREFIX"
+  unit_digits: 2
+  default_source: "Honeywell TDC (DCS)"
+  empty_mode_is_valid: true
+  phapro_headers: "HFS"
+  default_area: "north_console"
+
+  # Tag source rules based on Point Type (from Honeywell_tag_info.xlsx reference)
+  # Evaluated in order - first match wins
+  tag_source_rules:
+    # Safety Manager point types
+    - prefix: "SM_"
+      field: "point_type"
+      source: "Honeywell Safety Manager"
+      enforcement: "R"
+    - exact: "SM"
+      field: "point_type"
+      source: "Honeywell Safety Manager"
+      enforcement: "R"
+    # SCADA point types
+    - exact: "ANA"
+      field: "point_type"
+      source: "Honeywell Experion (SCADA)"
+      enforcement: "M"
+    - exact: "STA"
+      field: "point_type"
+      source: "Honeywell Experion (SCADA)"
+      enforcement: "M"
+    # Experion DCS point types
+    - exact: "AUTOMAN"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "CAB"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "DATAACQ"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "DEVCTL"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "DIGACQ"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "FANOUT"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "FLAG/CONTACTMON"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "FLOWCOMP"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "OVRDSEL"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "PID"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "PID-PL"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "PIDFF"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "RATIOCTL"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "REGCALC"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "REMCAS"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "SIGNALSEL"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "SWITCH"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    - exact: "TOTALIZER"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+    # TDC point types
+    - exact: "ANALGIN"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "CUSTOMAM"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "DIGCOM"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "DIGIN"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "FLAGAM"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "LOGIC"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "REGAM"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "REGCTL"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "REGLATRY"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "REGPV"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+    - exact: "SWITCHAM"
+      field: "point_type"
+      source: "Honeywell TDC (DCS)"
+      enforcement: "M"
+
+  areas:
+    north_console:
+      name: "North Console"
+      description: "North Console Area"
+
+# =============================================================================
+# RIO TINTO - BESSEMER CITY (ABB)
+# =============================================================================
+rt_bessemer:
+  name: "Rio Tinto - Bessemer City"
+  vendor: "ABB"
+  dcs_name: "ABB"
+  pha_tool: "PHA-Pro"
+  parser: "abb"
+  unit_method: "FIXED"
+  unit_value: "Line 1"
+  default_source: "ABB 800xA (DCS)"
+  abb_priority_default: 3
+  default_area: "line_1"
+
+  tag_source_rules: []
+
+  abb_alarm_types:
+    H: "(PV) High"
+    HH: "(PV) High High"
+    HHH: "(PV) High High High"
+    L: "(PV) Low"
+    LL: "(PV) Low Low"
+    LLL: "(PV) Low Low Low"
+    OE: "Object Error"
+
+  areas:
+    line_1:
+      name: "Line 1"
+      description: "Production Line 1"

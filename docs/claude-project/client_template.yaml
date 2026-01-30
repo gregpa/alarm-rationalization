@@ -1,0 +1,162 @@
+# =============================================================================
+# CLIENT CONFIGURATION TEMPLATE
+# =============================================================================
+# Copy this template and modify for your new client.
+# Add the completed configuration to config/clients.yaml
+#
+# Required fields are marked with [REQUIRED]
+# Optional fields are marked with [OPTIONAL] and can be removed
+# =============================================================================
+
+# Client ID - lowercase, no spaces, use underscores (e.g., "my_client")
+# This becomes the key in clients.yaml
+new_client_id:
+
+  # [REQUIRED] Display name shown in the UI
+  name: "New Client Name"
+
+  # [REQUIRED] Control system vendor
+  vendor: "Honeywell Experion/DynAMo"  # or "ABB", etc.
+
+  # [OPTIONAL] DCS system name for labels
+  dcs_name: "DynAMo"
+
+  # [OPTIONAL] PHA tool name
+  pha_tool: "PHA-Pro"
+
+  # [REQUIRED] Parser type - determines how files are read
+  # Options: "dynamo" (CSV with schemas) or "abb" (Excel format)
+  parser: "dynamo"
+
+  # [REQUIRED] How to extract unit numbers from tags
+  # Options:
+  #   "TAG_PREFIX" - Extract from first N digits of tag name (e.g., "17FIC-123" -> "17")
+  #   "ASSET_PARENT" - Use asset parent field
+  #   "ASSET_CHILD" - Use asset child field
+  #   "FIXED" - Use a fixed value (set unit_value below)
+  unit_method: "TAG_PREFIX"
+
+  # [CONDITIONAL] Number of digits for TAG_PREFIX method
+  unit_digits: 2
+
+  # [CONDITIONAL] Fixed unit value (only if unit_method is "FIXED")
+  # unit_value: "Line 1"
+
+  # [REQUIRED] Default source when no tag_source_rules match
+  default_source: "Honeywell TDC (DCS)"
+
+  # [OPTIONAL] Default area ID (must match a key in areas below)
+  default_area: "main_area"
+
+  # [OPTIONAL] Allow empty mode values (HFS-specific)
+  # empty_mode_is_valid: true
+
+  # [OPTIONAL] Use alternate PHA-Pro headers
+  # Options: "HFS" (43 columns) or omit for standard (45 columns)
+  # phapro_headers: "HFS"
+
+  # ==========================================================================
+  # TAG SOURCE RULES
+  # ==========================================================================
+  # Rules are evaluated in order - first match wins
+  # Each rule maps tag characteristics to a source system
+  #
+  # Match types:
+  #   exact: "VALUE"     - Exact match
+  #   prefix: "SM"       - Starts with
+  #   contains: "."      - Contains substring
+  #   in: ["A", "B"]     - Value is in list
+  #
+  # Fields to match against:
+  #   "point_type"       - DCS point type (most common)
+  #   "tag_name"         - Full tag name
+  #
+  # Enforcement codes:
+  #   "R" - Required (typically safety systems)
+  #   "M" - Mandatory
+  #   "D" - Discretionary
+  # ==========================================================================
+  tag_source_rules:
+    # Safety Manager example
+    - exact: "SM"
+      field: "point_type"
+      source: "Honeywell Safety Manager (SIS)"
+      enforcement: "R"
+
+    # SCADA point types
+    - in: ["ANA", "STA"]
+      field: "point_type"
+      source: "Honeywell Experion (SCADA)"
+      enforcement: "M"
+
+    # DCS point types (add as many as needed)
+    - exact: "PID"
+      field: "point_type"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+
+    # Tag name patterns
+    - contains: "."
+      field: "tag_name"
+      source: "Honeywell Experion (DCS)"
+      enforcement: "M"
+
+  # ==========================================================================
+  # AREAS / UNITS
+  # ==========================================================================
+  # Define facility areas for the PHA-Pro hierarchy
+  # Key: area ID (lowercase, underscores)
+  # name: Display name
+  # description: Optional description
+  # ==========================================================================
+  areas:
+    main_area:
+      name: "Main Processing Area"
+      description: "Primary processing facility"
+    secondary_area:
+      name: "Secondary Area"
+      description: "Secondary processing area"
+
+# =============================================================================
+# EXAMPLES
+# =============================================================================
+
+# Example 1: Honeywell DynAMo client (like FLNG)
+# ---------------------------------------------
+# example_dynamo:
+#   name: "Example Honeywell Site"
+#   vendor: "Honeywell Experion/DynAMo"
+#   parser: "dynamo"
+#   unit_method: "TAG_PREFIX"
+#   unit_digits: 2
+#   default_source: "Honeywell TDC (DCS)"
+#   tag_source_rules:
+#     - prefix: "SM"
+#       field: "point_type"
+#       source: "Honeywell Safety Manager (SIS)"
+#       enforcement: "R"
+#   areas:
+#     unit_1:
+#       name: "Unit 1"
+#       description: "Processing Unit 1"
+
+# Example 2: ABB client (like Rio Tinto)
+# ---------------------------------------------
+# example_abb:
+#   name: "Example ABB Site"
+#   vendor: "ABB"
+#   parser: "abb"
+#   unit_method: "FIXED"
+#   unit_value: "Line 1"
+#   default_source: "ABB 800xA (DCS)"
+#   abb_priority_default: 3
+#   tag_source_rules: []
+#   abb_alarm_types:
+#     H: "(PV) High"
+#     HH: "(PV) High High"
+#     L: "(PV) Low"
+#     LL: "(PV) Low Low"
+#   areas:
+#     line_1:
+#       name: "Line 1"
+#       description: "Production Line 1"
