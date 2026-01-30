@@ -2290,6 +2290,217 @@ class AlarmTransformer:
         
         return output.getvalue()
 
+    def generate_change_report_abb(self, pha_content: str, source_bytes: bytes) -> bytes:
+        """
+        Generate an Excel change report comparing original ABB values with PHA-Pro changes.
+
+        Args:
+            pha_content: The PHA-Pro export file content
+            source_bytes: Original ABB Excel file as bytes
+
+        Returns:
+            Excel file as bytes
+        """
+        import pandas as pd
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        # Parse original ABB Excel to get original values
+        original_tags = self.parse_abb_excel(source_bytes)
+        original_lookup = {}
+        for tag in original_tags:
+            for alarm in tag['alarms']:
+                key = (tag['tag_name'], alarm['type'])
+                original_lookup[key] = {
+                    'description': tag['description'],
+                    'limit': alarm['level'],
+                    'priority': alarm['priority'],
+                    'severity': alarm['severity'],
+                    'enabled': alarm['enabled'],
+                }
+
+        # Parse PHA-Pro file to get rationalized values
+        lines = pha_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        reader = csv.reader(lines)
+        rows_list = list(reader)
+
+        if not rows_list:
+            raise ValueError("PHA-Pro file is empty")
+
+        header = rows_list[0]
+        col_map = {col.strip(): i for i, col in enumerate(header)}
+
+        # Build change records
+        change_records = []
+        last_tag_name = ""
+
+        for row in rows_list[1:]:
+            if not row or not any(row):
+                continue
+
+            # Get tag name (propagate from previous row if blank)
+            tag_name_idx = col_map.get('New Tag Name', col_map.get('Starting Tag Name', col_map.get('Tag Name', 1)))
+            tag_name = row[tag_name_idx].strip() if tag_name_idx < len(row) else ""
+            if tag_name:
+                last_tag_name = tag_name
+            else:
+                tag_name = last_tag_name
+
+            # Get alarm type
+            alarm_type_idx = col_map.get('New Alarm Type', col_map.get('Starting Alarm Type', 11))
+            alarm_type = row[alarm_type_idx].strip() if alarm_type_idx < len(row) else ""
+
+            if not alarm_type:
+                continue
+
+            key = (tag_name, alarm_type)
+            original = original_lookup.get(key, {})
+
+            def get_col(name, default=""):
+                idx = col_map.get(name)
+                if idx is not None and idx < len(row):
+                    return row[idx].strip() or default
+                return default
+
+            # Get original values
+            orig_limit = original.get('limit', '')
+            orig_priority = original.get('priority', '')
+            orig_severity = original.get('severity', '')
+            orig_enabled = original.get('enabled', '')
+
+            # Format original limit
+            if orig_limit == -9999999 or orig_limit == -9999999.0:
+                orig_limit_str = "-9999999"
+            elif orig_limit:
+                orig_limit_str = str(int(orig_limit)) if orig_limit == int(orig_limit) else str(orig_limit)
+            else:
+                orig_limit_str = ""
+
+            # Get new values from PHA-Pro
+            new_limit = get_col('New Limit', orig_limit_str)
+            new_priority = get_col('New (BPCS) Priority', get_col('New Priority', str(orig_priority)))
+            new_severity = get_col('New Alarm Severity', str(orig_severity))
+            new_enabled = get_col('New Alarm Enable Status', str(orig_enabled))
+
+            # Check for changes
+            limit_changed = str(orig_limit_str) != str(new_limit)
+            priority_changed = str(orig_priority) != str(new_priority)
+            severity_changed = str(orig_severity) != str(new_severity)
+            enabled_changed = str(orig_enabled) != str(new_enabled)
+
+            any_change = limit_changed or priority_changed or severity_changed or enabled_changed
+
+            if any_change:
+                change_records.append({
+                    'Tag Name': tag_name,
+                    'Alarm Type': alarm_type,
+                    'Original Limit': orig_limit_str,
+                    'New Limit': new_limit,
+                    'Limit Changed': '✓' if limit_changed else '',
+                    'Original Priority': str(orig_priority),
+                    'New Priority': new_priority,
+                    'Priority Changed': '✓' if priority_changed else '',
+                    'Original Severity': str(orig_severity),
+                    'New Severity': new_severity,
+                    'Severity Changed': '✓' if severity_changed else '',
+                    'Original Enabled': str(orig_enabled),
+                    'New Enabled': new_enabled,
+                    'Enabled Changed': '✓' if enabled_changed else '',
+                })
+
+        # Create DataFrame
+        df = pd.DataFrame(change_records)
+
+        # Create Excel workbook with formatting
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Change Report"
+
+        # Define styles
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True, size=10)
+        change_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        checkmark_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+        # Write header
+        if len(df) > 0:
+            headers = list(df.columns)
+            for col_idx, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_idx, value=header)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                cell.border = thin_border
+
+            # Write data rows
+            for row_idx, record in enumerate(df.to_dict('records'), 2):
+                for col_idx, header in enumerate(headers, 1):
+                    value = record.get(header, '')
+                    cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                    cell.border = thin_border
+                    cell.alignment = Alignment(vertical='center', wrap_text=True)
+
+                    # Highlight "Changed" columns with checkmarks
+                    if 'Changed' in header and value == '✓':
+                        cell.fill = checkmark_fill
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+                    # Highlight "New" columns that have changes
+                    if header.startswith('New ') and not header.endswith('Changed'):
+                        base_name = header.replace('New ', '')
+                        changed_col = f"{base_name} Changed"
+                        if changed_col in record and record[changed_col] == '✓':
+                            cell.fill = change_fill
+
+            # Adjust column widths
+            column_widths = {
+                'Tag Name': 25, 'Alarm Type': 18,
+                'Original Limit': 12, 'New Limit': 12, 'Limit Changed': 8,
+                'Original Priority': 12, 'New Priority': 12, 'Priority Changed': 8,
+                'Original Severity': 12, 'New Severity': 12, 'Severity Changed': 8,
+                'Original Enabled': 12, 'New Enabled': 12, 'Enabled Changed': 8,
+            }
+            for col_idx, header in enumerate(headers, 1):
+                width = column_widths.get(header, 15)
+                ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
+
+            # Freeze header row
+            ws.freeze_panes = 'A2'
+        else:
+            ws.cell(row=1, column=1, value="No changes detected")
+
+        # Add summary sheet
+        ws_summary = wb.create_sheet("Summary")
+        ws_summary.cell(row=1, column=1, value="ABB Change Report Summary").font = Font(bold=True, size=14)
+        ws_summary.cell(row=3, column=1, value="Total Alarms with Changes:")
+        ws_summary.cell(row=3, column=2, value=len(df))
+
+        # Count changes by type
+        if len(df) > 0:
+            ws_summary.cell(row=5, column=1, value="Changes by Field:").font = Font(bold=True)
+            change_cols = [col for col in df.columns if col.endswith('Changed')]
+            row = 6
+            for col in change_cols:
+                count = (df[col] == '✓').sum()
+                if count > 0:
+                    field_name = col.replace(' Changed', '')
+                    ws_summary.cell(row=row, column=1, value=field_name)
+                    ws_summary.cell(row=row, column=2, value=count)
+                    row += 1
+
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return output.getvalue()
+
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -2890,7 +3101,16 @@ Best when you need granular unit breakdown.
                 if uploaded_file is not None and source_file is None:
                     st.warning(f"⚠️ Please upload the original {dcs_name} export file. Without it, default values will be used.")
             else:
-                source_file = None
+                # ABB clients - optional source file for Change Report
+                st.markdown("---")
+                st.markdown(f"**📊 Optional: Original {dcs_name} export for Change Report**")
+                st.caption("Upload to generate a Change Report comparing original vs rationalized values.")
+                source_file = st.file_uploader(
+                    f"📂 Original {dcs_name} Export (.xlsx) - Optional",
+                    type=['xlsx', 'xls'],
+                    help=f"Upload the original {dcs_name} Excel export to enable Change Report generation.",
+                    key=f"reverse_source_abb_{st.session_state.file_uploader_key}"
+                )
             
             unit_filter = None
     
@@ -3350,11 +3570,18 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                     except Exception:
                         st.caption("Excel export unavailable")
 
-                # Change Report button (only for DynAMo reverse transform)
+                # Change Report button (for reverse transforms with source file)
                 with col_dl3:
-                    if parser_type != "abb" and source_data:
+                    if direction == "reverse" and source_file:
                         try:
-                            change_report = transformer.generate_change_report(file_content, source_data)
+                            if parser_type == "abb":
+                                # ABB Change Report - needs original Excel bytes
+                                source_file.seek(0)
+                                source_bytes = source_file.read()
+                                change_report = transformer.generate_change_report_abb(file_content, source_bytes)
+                            else:
+                                # DynAMo Change Report
+                                change_report = transformer.generate_change_report(file_content, source_data)
                             report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
                             st.download_button(
                                 label="📋 Change Report",

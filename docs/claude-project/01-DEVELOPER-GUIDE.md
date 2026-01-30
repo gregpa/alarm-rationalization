@@ -111,6 +111,10 @@ class AlarmTransformer:
     def transform_reverse(self, content, source) -> Tuple[bytes, Dict]:
     def transform_reverse_abb(self, content) -> Tuple[bytes, Dict]:
 
+    # Change Reports (all clients)
+    def generate_change_report(self, pha_content, source_data) -> bytes:
+    def generate_change_report_abb(self, pha_content, source_bytes) -> bytes:
+
     # Parsing
     def parse_dynamo_csv(self, content) -> Dict:
 

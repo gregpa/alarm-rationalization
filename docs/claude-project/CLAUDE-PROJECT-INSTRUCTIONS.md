@@ -479,7 +479,8 @@ Areas:
 │   ├── transform_reverse(content, source)
 │   ├── transform_reverse_abb(content)
 │   │
-│   └── generate_change_report(original, source)
+│   ├── generate_change_report(pha_content, source_data)
+│   └── generate_change_report_abb(pha_content, source_bytes)
 │
 ├── PREVIEW FUNCTION (2600-2650)
 │   └── _preview_file_data()
@@ -513,6 +514,8 @@ Areas:
 | `transform_forward_abb()` | ABB Excel → PHA-Pro 23-col |
 | `transform_reverse()` | PHA-Pro → DynAMo _Parameter |
 | `transform_reverse_abb()` | PHA-Pro → ABB 8-col |
+| `generate_change_report()` | DynAMo change report (Excel) |
+| `generate_change_report_abb()` | ABB change report (Excel) |
 | `parse_dynamo_csv()` | Parse multi-schema DynAMo CSV |
 | `parse_abb_excel()` | Parse ABB Excel wide format |
 | `scan_for_units()` | Pre-scan for unit detection UI |
@@ -539,7 +542,9 @@ Areas:
 ### Export Options
 - **CSV**: Standard comma-separated
 - **Excel**: .xlsx with proper formatting
-- **Change Report**: Excel summary (reverse transforms)
+- **Change Report**: Excel summary comparing original vs rationalized values (all clients, reverse transforms)
+  - DynAMo: Requires original source file
+  - ABB: Optional original Excel file enables Change Report
 
 ### Data Preview
 - Optional pre-transform validation

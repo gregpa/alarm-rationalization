@@ -137,8 +137,20 @@ After transformation, download in:
 - **CSV** - Standard comma-separated format
 - **Excel** - .xlsx format with proper formatting
 
-For reverse transformations (DynAMo), you can also download:
+For reverse transformations (all clients), you can also download:
 - **Change Report** - Excel showing what changed from original
+
+### Change Report
+The Change Report compares original values with rationalized values and highlights:
+- Limit changes
+- Priority changes
+- Severity changes
+- Enable status changes
+- (DynAMo only) TTR, Cause, Consequence, Operator actions
+
+**Requirements:**
+- DynAMo clients: Original DCS export file (required)
+- ABB clients: Original ABB Excel export (optional, but needed for Change Report)
 
 ---
 
