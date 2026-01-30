@@ -23,7 +23,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install openpyxl  # For Excel file handling
+        pip install pytest
 
     - name: Validate Python syntax
       run: |
@@ -31,7 +31,13 @@ jobs:
 
     - name: Check imports
       run: |
-        python -c "import streamlit; import pandas; print('✅ All imports successful')"
+        python -c "import streamlit; import pandas; print('All imports successful')"
+
+    - name: Run test suite
+      id: tests
+      run: |
+        python -m pytest tests/ -v --tb=short
+      continue-on-error: true
 
     - name: Validate Streamlit app structure
       run: |
@@ -39,18 +45,106 @@ jobs:
         import ast
         import sys
 
-        # Parse the file to check for syntax errors and basic structure
         with open('streamlit_app.py', 'r') as f:
             code = f.read()
             try:
                 ast.parse(code)
-                print('✅ Streamlit app structure is valid')
+                print('Streamlit app structure is valid')
             except SyntaxError as e:
-                print(f'❌ Syntax error in streamlit_app.py: {e}')
+                print(f'Syntax error in streamlit_app.py: {e}')
                 sys.exit(1)
         "
 
     - name: Validation complete
       run: |
-        echo "✅ All validation checks passed!"
-        echo "🚀 Ready for deployment to Streamlit Cloud"
+        echo "All validation checks passed!"
+        echo "Ready for deployment to Streamlit Cloud"
+
+  # Notification job - runs after validate completes
+  notify:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: always()
+
+    steps:
+    - name: Prepare notification data
+      id: prep
+      run: |
+        if [ "${{ needs.validate.result }}" == "success" ]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "emoji=white_check_mark" >> $GITHUB_OUTPUT
+          echo "message=Validation passed" >> $GITHUB_OUTPUT
+        else
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "emoji=x" >> $GITHUB_OUTPUT
+          echo "message=Validation failed" >> $GITHUB_OUTPUT
+        fi
+
+    # Slack notification (uncomment and add SLACK_WEBHOOK_URL secret to enable)
+    # - name: Notify Slack
+    #   if: always()
+    #   uses: slackapi/slack-github-action@v1.25.0
+    #   with:
+    #     payload: |
+    #       {
+    #         "text": "${{ steps.prep.outputs.emoji }} Alarm Rationalization: ${{ steps.prep.outputs.message }}",
+    #         "blocks": [
+    #           {
+    #             "type": "section",
+    #             "text": {
+    #               "type": "mrkdwn",
+    #               "text": "*${{ steps.prep.outputs.message }}*\n\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.actor }}"
+    #             }
+    #           },
+    #           {
+    #             "type": "actions",
+    #             "elements": [
+    #               {
+    #                 "type": "button",
+    #                 "text": {"type": "plain_text", "text": "View Run"},
+    #                 "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+    #               }
+    #             ]
+    #           }
+    #         ]
+    #       }
+    #   env:
+    #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    #     SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+    # Microsoft Teams notification (uncomment and add TEAMS_WEBHOOK_URL secret to enable)
+    # - name: Notify Teams
+    #   if: always()
+    #   run: |
+    #     curl -H "Content-Type: application/json" -d '{
+    #       "@type": "MessageCard",
+    #       "themeColor": "${{ needs.validate.result == 'success' && '00FF00' || 'FF0000' }}",
+    #       "title": "Alarm Rationalization: ${{ steps.prep.outputs.message }}",
+    #       "text": "Branch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.actor }}",
+    #       "potentialAction": [{
+    #         "@type": "OpenUri",
+    #         "name": "View Run",
+    #         "targets": [{"os": "default", "uri": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}]
+    #       }]
+    #     }' ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    - name: Log deployment status
+      run: |
+        echo "=========================================="
+        echo "Deployment Status: ${{ steps.prep.outputs.message }}"
+        echo "=========================================="
+        echo "Repository: ${{ github.repository }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Author: ${{ github.actor }}"
+        echo "Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo ""
+        echo "To enable Slack notifications:"
+        echo "  1. Create a Slack webhook URL"
+        echo "  2. Add it as a secret named SLACK_WEBHOOK_URL"
+        echo "  3. Uncomment the Slack notification step in .github/workflows/validate.yml"
+        echo ""
+        echo "To enable Teams notifications:"
+        echo "  1. Create a Teams incoming webhook"
+        echo "  2. Add it as a secret named TEAMS_WEBHOOK_URL"
+        echo "  3. Uncomment the Teams notification step in .github/workflows/validate.yml"

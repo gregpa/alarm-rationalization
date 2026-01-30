@@ -1,0 +1,44 @@
+# Pre-commit hooks for alarm-rationalization
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Python syntax validation
+  - repo: local
+    hooks:
+      - id: python-syntax-check
+        name: Validate Python Syntax
+        entry: python -m py_compile
+        language: system
+        files: \.py$
+        types: [python]
+
+      - id: streamlit-imports
+        name: Check Streamlit Imports
+        entry: python -c "import streamlit; import pandas; print('Imports OK')"
+        language: system
+        files: streamlit_app\.py$
+        pass_filenames: false
+
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+        exclude: \.md$
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Python-specific checks
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--check-only", "--diff"]
+        name: Check import sorting (no changes)

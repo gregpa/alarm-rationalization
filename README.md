@@ -1,12 +1,12 @@
-# 🔔 Alarm Rationalization Platform
+# Alarm Rationalization Platform
 
 A professional web application for transforming alarm data between Honeywell DynAMo and PHA-Pro formats.
 
-## 🌐 Live Application
+## Live Application
 
 **Access the app:** [https://alarm-rationalization.streamlit.app](https://alarm-rationalization.streamlit.app)
 
-## ✨ Features
+## Features
 
 - **Forward Transformation**: Convert DynAMo exports to PHA-Pro 45-column import format
 - **Reverse Transformation**: Convert PHA-Pro exports back to DynAMo _Parameter format
@@ -15,7 +15,7 @@ A professional web application for transforming alarm data between Honeywell Dyn
 - **Mode Preservation**: Maintain original mode values when transforming back to DynAMo
 - **Professional UI**: Modern, intuitive web interface
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Using the Web App
 
@@ -40,39 +40,178 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-## 🚀 Deployment
+---
 
-This project features automatic deployment to Streamlit Cloud.
+## Development Workflow
 
-### Quick Deploy
+This section documents the development tools, testing, and deployment processes.
+
+### Project Structure
+
+```
+alarm-rationalization/
+├── streamlit_app.py              # Main application (v3.23)
+├── requirements.txt              # Python dependencies
+├── deploy.sh                     # Deployment script
+│
+├── tests/                        # Test suite
+│   ├── __init__.py
+│   ├── conftest.py               # Pytest fixtures
+│   └── test_transformer.py       # 32 tests for v3.23 behavior
+│
+├── .vscode/
+│   └── tasks.json                # VS Code tasks
+│
+├── .github/workflows/
+│   ├── validate.yml              # CI/CD for main branch
+│   └── staging.yml               # CI/CD for develop branch
+│
+├── .pre-commit-config.yaml       # Pre-commit hooks
+└── .streamlit/
+    └── config.toml               # Streamlit theme config
+```
+
+### VS Code Tasks
+
+Access via `Ctrl+Shift+P` → "Tasks: Run Task"
+
+| Task | Description | When to Use |
+|------|-------------|-------------|
+| **Run App Locally** | Starts Streamlit on localhost:8501 | Local testing |
+| **Validate Code** | Checks Python syntax only | Quick syntax check |
+| **Run Tests** | Runs full test suite (32 tests) | Verify nothing broke |
+| **Validate + Deploy** | Syntax check → deploy | Quick deploy for small changes |
+| **Run Tests + Deploy** | Full tests → deploy | **Recommended** - safest option |
+| **Quick Commit** | Validates then commits | Fast commits with safety |
+| **Deploy to Production** | Runs deploy.sh | Manual deploy |
+| **Git Status** | Shows status + recent commits | Check repo state |
+| **Install Test Dependencies** | Installs pytest | First-time setup |
+
+### Testing
+
+The test suite captures v3.23 behavior to prevent regressions.
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test class
+pytest tests/test_transformer.py::TestPriorityMapping -v
+
+# Run with coverage
+pytest tests/ -v --cov=streamlit_app
+```
+
+**Test Categories:**
+- `TestAlarmTransformerInit` - Client configuration loading
+- `TestDiscreteAlarmDetection` - Discrete vs analog classification
+- `TestPriorityMapping` - Priority code mapping (U, C, H, M, L, Jo)
+- `TestSeverityMapping` - Consequence to severity (A-E)
+- `TestUnitExtraction` - Unit extraction methods
+- `TestTagSourceDerivation` - Tag source rules
+- `TestForwardTransformation` - DynAMo → PHA-Pro
+- `TestDynamoParsing` - CSV parsing
+- `TestABBSupport` - ABB 800xA client
+- `TestHFSinclair` - HF Sinclair specifics
+
+### Pre-commit Hooks
+
+Validates code before every commit.
+
+```bash
+# Install (one-time setup)
+pip install pre-commit
+pre-commit install
+
+# Run manually on all files
+pre-commit run --all-files
+```
+
+**Checks performed:**
+- Python syntax validation
+- Streamlit imports check
+- Trailing whitespace
+- YAML/JSON validation
+- Large file detection
+- Merge conflict markers
+- Private key detection
+
+### Deployment
+
+#### Recommended: Test-First Deploy
+
+```bash
+# From VS Code: Run "Run Tests + Deploy" task
+# Or manually:
+pytest tests/ -v && ./deploy.sh
+```
+
+#### Quick Deploy (syntax check only)
+
 ```bash
 ./deploy.sh
 ```
 
-The deploy script will guide you through committing and pushing changes. Any push to the `main` branch automatically triggers deployment to production.
+#### Branch Strategy
 
-**For detailed deployment instructions**, see [DEPLOYMENT.md](DEPLOYMENT.md)
+| Branch | Purpose | Auto-Deploy |
+|--------|---------|-------------|
+| `main` | Production | Yes → alarm-rationalization.streamlit.app |
+| `develop` | Staging/Testing | Validates only (no deploy) |
 
-### Manual Deploy
-```bash
-git add .
-git commit -m "Your changes"
-git push origin main
-```
+**Workflow:**
+1. Create feature branch from `main`
+2. Make changes
+3. Run tests locally: `pytest tests/ -v`
+4. Push to `develop` for CI validation
+5. Merge to `main` for production deploy
 
-Changes will be live at https://alarm-rationalization.streamlit.app within 2-5 minutes.
+### GitHub Actions
 
-## 📋 Supported Formats
+**On push to `main`:**
+1. Validates Python syntax
+2. Checks imports
+3. Runs test suite
+4. Validates AST structure
+5. (Optional) Sends Slack/Teams notification
+
+**To enable notifications:**
+1. Create webhook URL (Slack or Teams)
+2. Add as GitHub secret: `SLACK_WEBHOOK_URL` or `TEAMS_WEBHOOK_URL`
+3. Uncomment notification step in `.github/workflows/validate.yml`
+
+### Adding New Features Safely
+
+1. **Before coding:** Run tests to establish baseline
+   ```bash
+   pytest tests/ -v
+   ```
+
+2. **After coding:** Run tests to verify no regressions
+   ```bash
+   pytest tests/ -v
+   ```
+
+3. **Deploy:** Use test-first deploy
+   ```bash
+   # VS Code: "Run Tests + Deploy" task
+   ```
+
+4. **If tests fail:** Fix the issue or update tests if behavior change is intentional
+
+---
+
+## Supported Formats
 
 ### Forward (DynAMo → PHA-Pro)
 
 **Input**: DynAMo multi-schema CSV export containing:
 - `_DCSVariable` - Tag definitions
-- `_DCS` - DCS properties  
+- `_DCS` - DCS properties
 - `_Parameter` - Alarm parameters
 - `_Notes` - Documentation
 
-**Output**: PHA-Pro 45-column hierarchical import format
+**Output**: PHA-Pro 45-column hierarchical import format (43 for HFS)
 
 ### Reverse (PHA-Pro → DynAMo)
 
@@ -80,46 +219,56 @@ Changes will be live at https://alarm-rationalization.streamlit.app within 2-5 m
 
 **Output**: DynAMo _Parameter 42-column import format
 
-## 🏭 Supported Clients
+## Supported Clients
 
-| Client | Control System | Tag Source Rules |
-|--------|---------------|------------------|
-| Freeport LNG | Honeywell Experion/TDC | SM→SIS, ANA/STA→SCADA |
-| HF Sinclair | Honeywell Experion | Configurable |
+| Client | Control System | Parser | Columns | Tag Source Rules |
+|--------|---------------|--------|---------|------------------|
+| Freeport LNG | Honeywell Experion/TDC | DynAMo | 45 | SM→SIS, ANA/STA→SCADA |
+| HF Sinclair - Artesia | Honeywell Experion | DynAMo | 43 | 77 point-type rules |
+| Rio Tinto - Bessemer | ABB 800xA | ABB Excel | 23 | Fixed source |
 
-## 📁 Project Structure
+## Adding New Clients
 
-```
-alarm-rationalization/
-├── streamlit_app.py      # Main web application
-├── requirements.txt      # Python dependencies
-├── README.md            # This file
-└── config/              # Client configurations (optional)
-```
-
-## 🔧 Adding New Clients
-
-To add a new client, modify the `CLIENT_CONFIGS` dictionary in `streamlit_app.py`:
+Modify the `CLIENT_CONFIGS` dictionary in `streamlit_app.py`:
 
 ```python
 CLIENT_CONFIGS = {
     "new_client": {
         "name": "New Client Name",
         "vendor": "Control System Vendor",
+        "parser": "dynamo",  # or "abb"
         "unit_method": "TAG_PREFIX",
         "unit_digits": 2,
         "tag_source_rules": [
             {"prefix": "SM", "field": "point_type", "source": "Safety System", "enforcement": "R"},
         ],
         "default_source": "Default DCS Name",
+        "areas": {
+            "area_id": {"name": "Area Name", "description": "Area Description"},
+        },
     },
 }
 ```
 
-## 📄 License
+**After adding a client:** Add corresponding tests in `tests/test_transformer.py`
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v3.23 | Jan 2026 | Fixed Unit column display |
+| v3.22 | Jan 2026 | Unit display refinement |
+| v3.21 | Jan 2026 | Encoding & comma stripping fixes |
+| v3.19 | Jan 2026 | Enhanced unit extraction options |
+
+---
+
+## License
 
 Proprietary - Applied Engineering Solutions
 
-## 👥 Support
+## Support
 
 For support or questions, contact Applied Engineering Solutions.

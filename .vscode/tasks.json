@@ -2,9 +2,39 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "🚀 Deploy to Production",
+      "label": "Run App Locally",
       "type": "shell",
-      "command": "./deploy.sh",
+      "command": "streamlit run streamlit_app.py",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": false
+      },
+      "isBackground": true,
+      "group": "test"
+    },
+    {
+      "label": "Validate Code",
+      "type": "shell",
+      "command": "python -m py_compile streamlit_app.py && echo 'Syntax OK'",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false
+      },
+      "group": "test"
+    },
+    {
+      "label": "Validate + Deploy",
+      "type": "shell",
+      "command": "python -m py_compile streamlit_app.py && echo 'Syntax OK - deploying...' && ./deploy.sh",
       "problemMatcher": [],
       "presentation": {
         "echo": true,
@@ -20,9 +50,52 @@
       }
     },
     {
-      "label": "⚡ Quick Push (No Prompts)",
+      "label": "Run Tests",
       "type": "shell",
-      "command": "git add . && git commit -m 'Quick update' && git push origin main",
+      "command": "python -m pytest tests/ -v --tb=short",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "group": "test"
+    },
+    {
+      "label": "Run Tests + Deploy",
+      "type": "shell",
+      "command": "python -m pytest tests/ -v --tb=short && echo 'Tests passed - deploying...' && ./deploy.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "group": "build"
+    },
+    {
+      "label": "Quick Commit (validate first)",
+      "type": "shell",
+      "command": "python -m py_compile streamlit_app.py && git add -A && git commit",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "Deploy to Production",
+      "type": "shell",
+      "command": "./deploy.sh",
       "problemMatcher": [],
       "presentation": {
         "echo": true,
@@ -34,31 +107,27 @@
       }
     },
     {
-      "label": "🧪 Test Locally",
+      "label": "Git Status",
       "type": "shell",
-      "command": "streamlit run streamlit_app.py",
+      "command": "git status && echo '' && git log --oneline -5",
       "problemMatcher": [],
       "presentation": {
         "echo": true,
         "reveal": "always",
         "focus": true,
-        "panel": "dedicated",
-        "showReuseMessage": false,
-        "clear": false
-      },
-      "isBackground": true
+        "panel": "shared"
+      }
     },
     {
-      "label": "✅ Validate Code",
+      "label": "Install Test Dependencies",
       "type": "shell",
-      "command": "python -m py_compile streamlit_app.py && echo '✅ Code validation passed!'",
+      "command": "pip install pytest pytest-cov",
       "problemMatcher": [],
       "presentation": {
         "echo": true,
         "reveal": "always",
         "focus": true,
-        "panel": "shared",
-        "showReuseMessage": false
+        "panel": "shared"
       }
     }
   ]
