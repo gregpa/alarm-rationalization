@@ -16,6 +16,7 @@ Upload all files in this folder to your Claude project's knowledge base.
 | `03-CLIENT-CONFIGURATION-GUIDE.md` | How to add/modify clients |
 | `04-DELIVERABLES-CHECKLIST.md` | What to provide for changes |
 | `05-CODE-REFERENCE.md` | Key code structures |
+| `06-COLUMN-MAPPING-REFERENCE.md` | Field mapping between DCS and PHA-Pro |
 | `clients.yaml` | Current client configurations |
 | `client_template.yaml` | Template for new clients |
 
