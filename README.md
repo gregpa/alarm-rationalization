@@ -50,14 +50,19 @@ This section documents the development tools, testing, and deployment processes.
 
 ```
 alarm-rationalization/
-├── streamlit_app.py              # Main application (v3.23)
+├── streamlit_app.py              # Main application (v3.23+)
 ├── requirements.txt              # Python dependencies
 ├── deploy.sh                     # Deployment script
+│
+├── config/
+│   └── clients.yaml              # External client configurations (editable)
+│
+├── backups/                      # Code backups (created automatically)
 │
 ├── tests/                        # Test suite
 │   ├── __init__.py
 │   ├── conftest.py               # Pytest fixtures
-│   └── test_transformer.py       # 32 tests for v3.23 behavior
+│   └── test_transformer.py       # 43 tests for behavior validation
 │
 ├── .vscode/
 │   └── tasks.json                # VS Code tasks
@@ -79,7 +84,7 @@ Access via `Ctrl+Shift+P` → "Tasks: Run Task"
 |------|-------------|-------------|
 | **Run App Locally** | Starts Streamlit on localhost:8501 | Local testing |
 | **Validate Code** | Checks Python syntax only | Quick syntax check |
-| **Run Tests** | Runs full test suite (32 tests) | Verify nothing broke |
+| **Run Tests** | Runs full test suite (43 tests) | Verify nothing broke |
 | **Validate + Deploy** | Syntax check → deploy | Quick deploy for small changes |
 | **Run Tests + Deploy** | Full tests → deploy | **Recommended** - safest option |
 | **Quick Commit** | Validates then commits | Fast commits with safety |
@@ -113,6 +118,51 @@ pytest tests/ -v --cov=streamlit_app
 - `TestDynamoParsing` - CSV parsing
 - `TestABBSupport` - ABB 800xA client
 - `TestHFSinclair` - HF Sinclair specifics
+- `TestExternalConfigLoader` - YAML config loading with fallback
+- `TestDataPreview` - Data validation preview feature
+- `TestConfigFallback` - Hardcoded fallback configuration
+
+### External Configuration
+
+Client configurations can be edited without touching Python code.
+
+**Edit:** `config/clients.yaml`
+
+```yaml
+# Example: Add a new client
+new_client:
+  name: "New Client Name"
+  vendor: "Control System"
+  parser: "dynamo"
+  unit_method: "TAG_PREFIX"
+  unit_digits: 2
+  default_source: "DCS Name"
+  tag_source_rules:
+    - exact: "SM"
+      field: "point_type"
+      source: "Safety Manager"
+      enforcement: "R"
+  areas:
+    main_area:
+      name: "Main Area"
+      description: "Primary processing area"
+```
+
+**Fallback:** If the YAML file is missing or corrupted, the app automatically falls back to hardcoded defaults in `streamlit_app.py`.
+
+### Data Validation Preview
+
+Before transforming, you can preview what will happen:
+
+1. Upload your file
+2. Check "Preview data before transforming"
+3. Review:
+   - Total rows vs rows to process
+   - Rows that will be skipped (and why)
+   - Units found in the file
+   - Potential issues (encoding, format)
+
+This is **off by default** - the original Transform workflow is unchanged.
 
 ### Pre-commit Hooks
 

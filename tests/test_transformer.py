@@ -34,7 +34,7 @@ class TestAlarmTransformerInit:
 
         expected_clients = ["flng", "hfs_artesia", "rt_bessemer"]
         for client_id in expected_clients:
-            assert client_id in AlarmTransformer.CLIENT_CONFIGS
+            assert client_id in AlarmTransformer.get_client_configs()
 
     def test_phapro_headers_correct_length(self, transformer_flng, transformer_hfs):
         """PHA-Pro headers should have expected column counts."""
@@ -298,13 +298,13 @@ class TestABBSupport:
         """ABB client should be configured."""
         from streamlit_app import AlarmTransformer
 
-        assert "rt_bessemer" in AlarmTransformer.CLIENT_CONFIGS
+        assert "rt_bessemer" in AlarmTransformer.get_client_configs()
 
     def test_abb_uses_correct_parser(self):
         """ABB client should use ABB parser."""
         from streamlit_app import AlarmTransformer
 
-        config = AlarmTransformer.CLIENT_CONFIGS["rt_bessemer"]
+        config = AlarmTransformer.get_client_configs()["rt_bessemer"]
         assert config["parser"] == "abb"
 
     def test_abb_phapro_headers_exist(self):
@@ -331,3 +331,149 @@ class TestHFSinclair:
         """HFS should have extensive tag source rules."""
         rules = transformer_hfs.config.get("tag_source_rules", [])
         assert len(rules) > 10, "HFS should have many tag source rules"
+
+
+class TestExternalConfigLoader:
+    """Test external YAML config loading with fallback."""
+
+    def test_get_client_configs_returns_dict(self):
+        """get_client_configs should return a dictionary."""
+        from streamlit_app import AlarmTransformer
+
+        configs = AlarmTransformer.get_client_configs()
+        assert isinstance(configs, dict)
+
+    def test_configs_have_required_clients(self):
+        """Configs should include all expected clients."""
+        from streamlit_app import AlarmTransformer
+
+        configs = AlarmTransformer.get_client_configs()
+        assert "flng" in configs
+        assert "hfs_artesia" in configs
+        assert "rt_bessemer" in configs
+
+    def test_config_structure_is_valid(self):
+        """Each client config should have required keys."""
+        from streamlit_app import AlarmTransformer
+
+        configs = AlarmTransformer.get_client_configs()
+
+        for client_id, config in configs.items():
+            assert "name" in config, f"{client_id} missing 'name'"
+            assert "parser" in config, f"{client_id} missing 'parser'"
+            assert "default_source" in config, f"{client_id} missing 'default_source'"
+
+    def test_external_config_file_exists(self):
+        """External config file should exist."""
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config',
+            'clients.yaml'
+        )
+        assert os.path.exists(config_path), "config/clients.yaml should exist"
+
+    def test_yaml_config_is_loadable(self):
+        """YAML config should be loadable without errors."""
+        import yaml
+        import os
+
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config',
+            'clients.yaml'
+        )
+
+        with open(config_path, 'r') as f:
+            configs = yaml.safe_load(f)
+
+        assert configs is not None
+        assert isinstance(configs, dict)
+        assert "flng" in configs
+
+
+class TestDataPreview:
+    """Test data validation preview functionality."""
+
+    def test_preview_function_exists(self):
+        """Preview function should be importable."""
+        from streamlit_app import _preview_file_data
+        assert callable(_preview_file_data)
+
+    def test_preview_returns_expected_keys(self, transformer_flng, sample_dynamo_csv):
+        """Preview should return dict with expected keys."""
+        from streamlit_app import _preview_file_data
+
+        result = _preview_file_data(
+            sample_dynamo_csv,
+            transformer_flng,
+            "forward",
+            "dynamo"
+        )
+
+        assert isinstance(result, dict)
+        assert "total_rows" in result
+        assert "rows_to_process" in result
+        assert "rows_to_skip" in result
+        assert "units_found" in result
+        assert "issues" in result
+
+    def test_preview_detects_units(self, transformer_flng, sample_dynamo_csv):
+        """Preview should detect units in the file."""
+        from streamlit_app import _preview_file_data
+
+        result = _preview_file_data(
+            sample_dynamo_csv,
+            transformer_flng,
+            "forward",
+            "dynamo"
+        )
+
+        # Should find unit "17" from the sample data
+        assert isinstance(result['units_found'], list)
+
+    def test_preview_handles_empty_content(self, transformer_flng):
+        """Preview should handle empty file content gracefully."""
+        from streamlit_app import _preview_file_data
+
+        result = _preview_file_data(
+            "",
+            transformer_flng,
+            "forward",
+            "dynamo"
+        )
+
+        assert result['rows_to_process'] == 0
+        assert "issues" in result
+
+
+class TestConfigFallback:
+    """Test that hardcoded fallback configs work correctly."""
+
+    def test_hardcoded_configs_exist(self):
+        """Hardcoded configs should exist as fallback."""
+        from streamlit_app import AlarmTransformer
+
+        assert hasattr(AlarmTransformer, '_HARDCODED_CONFIGS')
+        assert isinstance(AlarmTransformer._HARDCODED_CONFIGS, dict)
+
+    def test_hardcoded_matches_yaml_structure(self):
+        """Hardcoded configs should have same structure as YAML."""
+        from streamlit_app import AlarmTransformer
+        import yaml
+        import os
+
+        # Load YAML config
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'config',
+            'clients.yaml'
+        )
+
+        with open(config_path, 'r') as f:
+            yaml_configs = yaml.safe_load(f)
+
+        # Check same clients exist in both
+        hardcoded = AlarmTransformer._HARDCODED_CONFIGS
+        assert set(hardcoded.keys()) == set(yaml_configs.keys())

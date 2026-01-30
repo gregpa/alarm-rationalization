@@ -7,153 +7,8 @@ import streamlit as st
 import pandas as pd
 import io
 import csv
-import os
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Any, Set
-
-# =============================================================================
-# EXTERNAL CONFIG LOADER (with fallback to hardcoded defaults)
-# =============================================================================
-
-def load_client_configs() -> Dict[str, Any]:
-    """
-    Load client configurations from external YAML file.
-    Falls back to hardcoded defaults if YAML loading fails.
-
-    Returns:
-        Dict of client configurations
-    """
-    try:
-        import yaml
-
-        # Try to load from config/clients.yaml
-        config_paths = [
-            os.path.join(os.path.dirname(__file__), 'config', 'clients.yaml'),
-            'config/clients.yaml',
-            '/workspaces/alarm-rationalization/config/clients.yaml',
-        ]
-
-        for config_path in config_paths:
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    configs = yaml.safe_load(f)
-                    if configs and isinstance(configs, dict):
-                        # Successfully loaded from YAML
-                        return configs
-
-        # No config file found, fall back to hardcoded
-        return None
-
-    except Exception as e:
-        # Any error loading YAML, fall back to hardcoded
-        # This ensures the app always works even if YAML is corrupted
-        return None
-
-
-# Global config cache - loaded once at startup
-_EXTERNAL_CONFIGS = load_client_configs()
-
-
-def _preview_file_data(
-    file_content: str,
-    transformer: 'AlarmTransformer',
-    direction: str,
-    parser_type: str
-) -> Dict[str, Any]:
-    """
-    Preview file data without performing full transformation.
-    Used by the "Preview before transform" feature.
-
-    Args:
-        file_content: The uploaded file content as string
-        transformer: AlarmTransformer instance
-        direction: "forward" or "reverse"
-        parser_type: "dynamo" or "abb"
-
-    Returns:
-        Dict with preview statistics and potential issues
-    """
-    stats: Dict[str, Any] = {
-        'total_rows': 0,
-        'rows_to_process': 0,
-        'rows_to_skip': 0,
-        'units_found': set(),
-        'issues': [],
-        'skip_reasons': {}
-    }
-
-    try:
-        lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
-        stats['total_rows'] = len([l for l in lines if l.strip()])
-
-        if direction == "forward" and parser_type == "dynamo":
-            # Analyze DynAMo file for forward transform
-            empty_mode_valid = transformer.config.get("empty_mode_is_valid", False)
-
-            for line in lines:
-                if not line.strip():
-                    continue
-
-                # Check for _Parameter rows
-                if "_Variable" in line and "_Parameter" in line:
-                    # Parse the row to check mode
-                    try:
-                        row = list(csv.reader([line]))[0]
-                        if len(row) >= 6:
-                            mode = row[3].strip() if len(row) > 3 else ""
-                            tag_name = row[1].strip() if len(row) > 1 else ""
-
-                            # Check mode
-                            if mode.upper() == "NORMAL" or (empty_mode_valid and mode == ""):
-                                stats['rows_to_process'] += 1
-
-                                # Extract unit for preview
-                                if tag_name:
-                                    unit = transformer.extract_unit(tag_name, "", "TAG_PREFIX")
-                                    if unit:
-                                        stats['units_found'].add(unit)
-                            else:
-                                stats['rows_to_skip'] += 1
-                                reason = f"Mode: {mode}" if mode else "Empty mode"
-                                stats['skip_reasons'][reason] = stats['skip_reasons'].get(reason, 0) + 1
-                    except Exception:
-                        pass
-
-            # Check for potential issues
-            if stats['rows_to_process'] == 0:
-                stats['issues'].append("No NORMAL mode rows found - file may be empty or incorrectly formatted")
-
-            if stats['rows_to_skip'] > stats['rows_to_process']:
-                stats['issues'].append(f"More rows will be skipped ({stats['rows_to_skip']}) than processed ({stats['rows_to_process']})")
-
-        elif direction == "reverse":
-            # Analyze PHA-Pro file for reverse transform
-            reader = csv.reader(lines)
-            header = None
-
-            for row in reader:
-                if not row:
-                    continue
-                if header is None:
-                    header = row
-                    continue
-                stats['rows_to_process'] += 1
-
-            if stats['rows_to_process'] == 0:
-                stats['issues'].append("No data rows found in PHA-Pro export")
-
-        # Check for encoding issues
-        if 'Ã' in file_content or 'â€' in file_content:
-            stats['issues'].append("Possible encoding issues detected - special characters may not display correctly")
-
-    except Exception as e:
-        stats['issues'].append(f"Error analyzing file: {str(e)}")
-
-    # Convert set to list for JSON serialization
-    stats['units_found'] = list(stats['units_found'])
-
-    return stats
-
+from typing import Dict, List, Tuple, Optional
 
 # Page configuration - must be first Streamlit command
 st.set_page_config(
@@ -450,9 +305,7 @@ class AlarmTransformer:
     ]
     
     # Client configurations with Unit/Area hierarchy
-    # NOTE: These are FALLBACK defaults. External configs from config/clients.yaml take precedence.
-    # Edit config/clients.yaml instead of modifying these values directly.
-    _HARDCODED_CONFIGS = {
+    CLIENT_CONFIGS = {
         "flng": {
             "name": "Freeport LNG",
             "vendor": "Honeywell Experion/DynAMo",
@@ -557,26 +410,7 @@ class AlarmTransformer:
             "default_area": "line_1",
         },
     }
-
-    @classmethod
-    def get_client_configs(cls) -> Dict[str, Any]:
-        """
-        Get client configurations - external YAML if available, otherwise hardcoded fallback.
-
-        Returns:
-            Dict of client configurations
-        """
-        global _EXTERNAL_CONFIGS
-        if _EXTERNAL_CONFIGS is not None:
-            return _EXTERNAL_CONFIGS
-        return cls._HARDCODED_CONFIGS
-
-    # Property to maintain backward compatibility with code that references CLIENT_CONFIGS
-    @property
-    def CLIENT_CONFIGS(self) -> Dict[str, Any]:
-        """Get client configs (instance property for backward compatibility)."""
-        return self.get_client_configs()
-
+    
     # ABB-specific column mappings
     ABB_ALARM_SUFFIXES = ['H', 'HH', 'HHH', 'L', 'LL', 'LLL', 'OE']
     
@@ -618,7 +452,7 @@ class AlarmTransformer:
     @classmethod
     def get_client_areas(cls, client_id: str) -> dict:
         """Get available areas for a client."""
-        client_config = cls.get_client_configs().get(client_id, {})
+        client_config = cls.CLIENT_CONFIGS.get(client_id, {})
         areas = client_config.get("areas", {})
         return {aid: aconfig.get("name", aid) for aid, aconfig in areas.items()}
     
@@ -2225,7 +2059,7 @@ def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set, set]:
     units_by_asset_child = set()
     
     # Get config for unit extraction
-    config = AlarmTransformer.get_client_configs().get(client_id, AlarmTransformer.get_client_configs()["flng"])
+    config = AlarmTransformer.CLIENT_CONFIGS.get(client_id, AlarmTransformer.CLIENT_CONFIGS["flng"])
     unit_digits = config.get("unit_digits", 2)
     
     for row in reader:
@@ -2310,7 +2144,7 @@ def main():
         # Build client options from configs
         client_options = {
             client_id: config["name"] 
-            for client_id, config in AlarmTransformer.get_client_configs().items()
+            for client_id, config in AlarmTransformer.CLIENT_CONFIGS.items()
         }
         
         selected_client = st.selectbox(
@@ -2335,7 +2169,7 @@ def main():
             selected_area = None
         
         # Get the selected client's config for dynamic labels
-        client_config = AlarmTransformer.get_client_configs().get(selected_client, {})
+        client_config = AlarmTransformer.CLIENT_CONFIGS.get(selected_client, {})
         dcs_name = client_config.get("dcs_name", "DCS")
         pha_tool = client_config.get("pha_tool", "PHA-Pro")
         
@@ -2862,64 +2696,9 @@ Best when you need granular unit breakdown.
             )
         
         st.markdown("")
-
-        # Data Validation Preview (optional - off by default)
-        preview_enabled = st.checkbox(
-            "🔍 Preview data before transforming",
-            value=False,
-            help="Analyze the uploaded file to see what will be processed without performing the transformation"
-        )
-
-        if preview_enabled:
-            with st.expander("📊 Data Preview & Validation", expanded=True):
-                try:
-                    file_content = uploaded_file.getvalue().decode('utf-8', errors='replace')
-                    uploaded_file.seek(0)  # Reset file pointer
-
-                    preview_stats = _preview_file_data(
-                        file_content,
-                        temp_transformer,
-                        direction,
-                        parser_type
-                    )
-
-                    # Display preview stats
-                    pcol1, pcol2, pcol3 = st.columns(3)
-
-                    with pcol1:
-                        st.metric("Total Rows", f"{preview_stats.get('total_rows', 0):,}")
-                    with pcol2:
-                        st.metric("Rows to Process", f"{preview_stats.get('rows_to_process', 0):,}")
-                    with pcol3:
-                        st.metric("Rows to Skip", f"{preview_stats.get('rows_to_skip', 0):,}")
-
-                    # Show units found (for forward transform)
-                    if direction == "forward" and preview_stats.get('units_found'):
-                        st.markdown("**Units Found:**")
-                        units_str = ", ".join(sorted(preview_stats['units_found']))
-                        st.code(units_str)
-
-                    # Show potential issues
-                    if preview_stats.get('issues'):
-                        st.warning("**Potential Issues Detected:**")
-                        for issue in preview_stats['issues']:
-                            st.markdown(f"- {issue}")
-                    else:
-                        st.success("No issues detected - data looks ready for transformation")
-
-                    # Show skip reasons
-                    if preview_stats.get('skip_reasons'):
-                        with st.expander("View skipped row details"):
-                            for reason, count in preview_stats['skip_reasons'].items():
-                                st.markdown(f"- **{reason}**: {count:,} rows")
-
-                except Exception as e:
-                    st.error(f"Could not preview file: {str(e)}")
-
-        st.markdown("")
-
+        
         col1, col2, col3 = st.columns([1, 1, 1])
-
+        
         with col2:
             # Only enable Transform if columns are confirmed
             if columns_confirmed:
@@ -2937,7 +2716,7 @@ Best when you need granular unit breakdown.
                 )
                 st.caption("☝️ Please verify columns above before transforming")
                 transform_clicked = False
-
+        
         if transform_clicked:
             try:
                 # Get parser type
