@@ -3095,43 +3095,25 @@ Best when you need granular unit breakdown.
                 source_data = None
                 
                 if direction == "forward":
-                    with st.spinner("📝„ Transforming to PHA-Pro format..."):
-                        if parser_type == "abb":
-                            # ABB uses Excel, read as bytes
-                            raw_bytes = uploaded_file.read()
-                            output_csv, stats = transformer.transform_forward_abb(raw_bytes)
-                            output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
-                        else:
-                            # DynAMo uses CSV
-                            raw_bytes = uploaded_file.read()
-                            file_content = None
-                            for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                                try:
-                                    file_content = raw_bytes.decode(enc)
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                            
-                            if file_content is None:
-                                st.error("Could not decode file. Please ensure it's a valid CSV file.")
-                                st.stop()
-                            
-                            # Parse unit filter
-                            selected_units = None
-                            if unit_filter and unit_filter.strip():
-                                selected_units = [u.strip() for u in unit_filter.split(',')]
-                            
-                            # Get unit method from session state (for FLNG)
-                            unit_method = st.session_state.get('unit_method_choice', 'tag_prefix')
-                            
-                            # Transform
-                            output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
-                            output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
-                    
-                else:
-                    # Reverse transformation - always CSV input
-                    with st.spinner("📝„ Loading and parsing files..."):
+                    # Progress bar for forward transformation
+                    progress_bar = st.progress(0, text="Initializing...")
+
+                    if parser_type == "abb":
+                        # ABB uses Excel, read as bytes
+                        progress_bar.progress(20, text="Reading Excel file...")
                         raw_bytes = uploaded_file.read()
+
+                        progress_bar.progress(50, text="Transforming to PHA-Pro format...")
+                        output_csv, stats = transformer.transform_forward_abb(raw_bytes)
+                        output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
+
+                        progress_bar.progress(100, text="Complete!")
+                    else:
+                        # DynAMo uses CSV
+                        progress_bar.progress(15, text="Reading CSV file...")
+                        raw_bytes = uploaded_file.read()
+
+                        progress_bar.progress(25, text="Detecting encoding...")
                         file_content = None
                         for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
                             try:
@@ -3139,50 +3121,107 @@ Best when you need granular unit breakdown.
                                 break
                             except UnicodeDecodeError:
                                 continue
-                        
+
                         if file_content is None:
+                            progress_bar.empty()
                             st.error("Could not decode file. Please ensure it's a valid CSV file.")
                             st.stop()
-                        
-                        if parser_type == "abb":
-                            # ABB reverse transformation
-                            output_csv, stats = transformer.transform_reverse_abb(file_content)
-                            output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
-                        else:
-                            # DynAMo reverse transformation
-                            # Load source data (full rows) from original file
-                            source_data = None
-                            if source_file:
-                                source_raw = source_file.read()
-                                source_content = None
-                                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                                    try:
-                                        source_content = source_raw.decode(enc)
-                                        break
-                                    except UnicodeDecodeError:
-                                        continue
-                                
-                                if source_content:
-                                    # Parse ALL _Parameter rows from source file
-                                    source_rows = []
-                                    lines = source_content.replace('\r\n', '\n').split('\n')
-                                    reader = csv.reader(lines)
-                                    for row in reader:
-                                        if len(row) >= 6 and row[0] == "_Variable" and row[2] == "_Parameter":
-                                            source_rows.append(row)
-                                    
-                                    source_data = {'rows': source_rows}
-                            
-                            if not source_data:
-                                st.error(f"âŒ Original {dcs_name} export file is required for reverse transformation.")
-                                st.stop()
+
+                        progress_bar.progress(40, text="Parsing alarm data...")
+
+                        # Parse unit filter
+                        selected_units = None
+                        if unit_filter and unit_filter.strip():
+                            selected_units = [u.strip() for u in unit_filter.split(',')]
+
+                        # Get unit method from session state (for FLNG)
+                        unit_method = st.session_state.get('unit_method_choice', 'tag_prefix')
+
+                        progress_bar.progress(60, text="Transforming to PHA-Pro format...")
+
+                        # Transform
+                        output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
+                        output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
+
+                        progress_bar.progress(100, text="Complete!")
+
+                    # Clear progress bar after short delay
+                    import time
+                    time.sleep(0.3)
+                    progress_bar.empty()
                     
-                    # Now do the actual transformation with its own spinner
-                    with st.spinner(f"📝„ Transforming {len(source_data['rows']):,} alarm rows..."):
+                else:
+                    # Reverse transformation - progress bar
+                    progress_bar = st.progress(0, text="Initializing...")
+                    progress_bar.progress(10, text="Reading PHA-Pro export...")
+                    raw_bytes = uploaded_file.read()
+
+                    progress_bar.progress(20, text="Detecting encoding...")
+                    file_content = None
+                    for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                        try:
+                            file_content = raw_bytes.decode(enc)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+
+                    if file_content is None:
+                        progress_bar.empty()
+                        st.error("Could not decode file. Please ensure it's a valid CSV file.")
+                        st.stop()
+
+                    if parser_type == "abb":
+                        # ABB reverse transformation
+                        progress_bar.progress(50, text="Transforming ABB data...")
+                        output_csv, stats = transformer.transform_reverse_abb(file_content)
+                        output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
+                        progress_bar.progress(100, text="Complete!")
+                    else:
+                        # DynAMo reverse transformation
+                        progress_bar.progress(30, text="Reading original DynAMo file...")
+
+                        # Load source data (full rows) from original file
+                        source_data = None
+                        if source_file:
+                            source_raw = source_file.read()
+                            source_content = None
+                            for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                                try:
+                                    source_content = source_raw.decode(enc)
+                                    break
+                                except UnicodeDecodeError:
+                                    continue
+
+                            if source_content:
+                                progress_bar.progress(45, text="Parsing source alarm rows...")
+                                # Parse ALL _Parameter rows from source file
+                                source_rows = []
+                                lines = source_content.replace('\r\n', '\n').split('\n')
+                                reader = csv.reader(lines)
+                                for row in reader:
+                                    if len(row) >= 6 and row[0] == "_Variable" and row[2] == "_Parameter":
+                                        source_rows.append(row)
+
+                                source_data = {'rows': source_rows}
+
+
+                        if not source_data:
+                            progress_bar.empty()
+                            st.error(f"Original {dcs_name} export file is required for reverse transformation.")
+                            st.stop()
+
+                        progress_bar.progress(60, text=f"Transforming {len(source_data['rows']):,} alarm rows...")
+
                         # Transform (merge PHA-Pro changes with original data)
                         output_csv, stats = transformer.transform_reverse(file_content, source_data)
                         output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
-                
+
+                        progress_bar.progress(100, text="Complete!")
+
+                    # Clear progress bar after short delay
+                    import time
+                    time.sleep(0.3)
+                    progress_bar.empty()
                 # Show success (only after spinner completes)
                 st.markdown("""
                 <div class="status-success">
