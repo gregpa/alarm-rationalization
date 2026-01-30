@@ -3817,10 +3817,10 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
         - ✅ **HTTPS encrypted** - All traffic is encrypted
         
         **What is NOT exposed to the internet:**
-        - âŒ Uploaded alarm data
-        - âŒ Tag names or setpoints
-        - âŒ Any client operational data
-        - âŒ Client names (hidden behind login)
+        - Uploaded alarm data
+        - Tag names or setpoints
+        - Any client operational data
+        - Client names (hidden behind login)
         
         Your alarm data, tag names, setpoints, and all operational information remain private and are never stored or exposed.
         
