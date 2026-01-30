@@ -584,6 +584,15 @@ st.markdown("""
     .dataframe {
         font-size: 0.85rem;
     }
+
+    /* Make selectbox dropdowns non-editable (selection only) */
+    .stSelectbox input {
+        caret-color: transparent !important;
+        cursor: pointer !important;
+    }
+    .stSelectbox [data-baseweb="select"] input {
+        caret-color: transparent !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
