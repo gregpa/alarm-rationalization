@@ -524,7 +524,6 @@ Areas:
 | `csv_to_excel()` | Convert output to Excel format |
 | `add_to_history()` | Track transformations for re-download |
 | `validate_client_configs()` | Validate YAML config structure |
-| `generate_template_csv()` | Generate sample input files |
 
 ---
 
@@ -559,11 +558,6 @@ Areas:
 - Shows errors (blocking) and warnings in sidebar
 - Checks: required fields, valid parser types, unit methods, rule syntax
 
-### Template Downloads
-- Sample input files for each client/direction
-- Available in sidebar "Download Template File" section
-- Shows expected schema structure
-
 ---
 
 ## TESTING
@@ -571,7 +565,7 @@ Areas:
 ### Running Tests
 
 ```bash
-# All 54 tests
+# All 48 tests
 pytest tests/ -v
 
 # Specific test class
@@ -599,7 +593,6 @@ pytest tests/ -v --cov=streamlit_app
 | TestDataPreview | 4 | Preview feature |
 | TestConfigFallback | 2 | Hardcoded fallback |
 | TestConfigValidator | 5 | Config validation |
-| TestTemplateGenerator | 6 | Template downloads |
 
 ---
 

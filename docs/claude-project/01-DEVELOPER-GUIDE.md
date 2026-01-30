@@ -156,10 +156,6 @@ def add_to_history(filename, direction, client, stats, output_data, output_filen
 # Configuration validation
 def validate_client_configs(configs) -> List[Dict]:
     """Validate YAML configs, returns list of warnings/errors."""
-
-# Template generation
-def generate_template_csv(client_id, direction) -> Tuple[bytes, str]:
-    """Generate sample input file for a client/direction."""
 ```
 
 ---
@@ -339,7 +335,7 @@ Logs are stored in session state and viewable in sidebar:
 
 | Version | Changes |
 |---------|---------|
-| v3.25 | Configuration validator, template file downloads |
+| v3.25 | Configuration validator |
 | v3.24 | Structured logging, transformation history, Excel export, Change Reports for all clients |
 | v3.23 | Fixed Unit column display |
 | v3.22 | Unit display refinement |
