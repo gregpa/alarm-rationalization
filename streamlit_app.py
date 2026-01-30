@@ -8,8 +8,92 @@ import pandas as pd
 import io
 import csv
 import os
+import logging
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any, Set
+
+# =============================================================================
+# STRUCTURED LOGGING
+# =============================================================================
+
+class SessionLogHandler(logging.Handler):
+    """Custom log handler that stores logs in Streamlit session state."""
+    def emit(self, record):
+        try:
+            if 'app_logs' not in st.session_state:
+                st.session_state.app_logs = []
+            st.session_state.app_logs.append({
+                'time': datetime.now().strftime('%H:%M:%S'),
+                'level': record.levelname,
+                'message': record.getMessage()
+            })
+            if len(st.session_state.app_logs) > 500:
+                st.session_state.app_logs = st.session_state.app_logs[-500:]
+        except Exception:
+            pass
+
+def setup_logger():
+    logger = logging.getLogger('alarm_rationalization')
+    if not logger.handlers:
+        logger.setLevel(logging.INFO)
+        logger.addHandler(SessionLogHandler())
+    return logger
+
+app_logger = setup_logger()
+
+# =============================================================================
+# TRANSFORMATION HISTORY
+# =============================================================================
+
+def add_to_history(filename: str, direction: str, client: str, stats: Dict, output_data: bytes, output_filename: str):
+    """Add a transformation to session history."""
+    if 'transformation_history' not in st.session_state:
+        st.session_state.transformation_history = []
+    st.session_state.transformation_history.append({
+        'id': len(st.session_state.transformation_history) + 1,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'input_file': filename,
+        'direction': direction,
+        'client': client,
+        'tags': stats.get('tags', 0),
+        'alarms': stats.get('alarms', 0),
+        'output_data': output_data,
+        'output_filename': output_filename
+    })
+    if len(st.session_state.transformation_history) > 20:
+        st.session_state.transformation_history = st.session_state.transformation_history[-20:]
+
+def get_history():
+    if 'transformation_history' not in st.session_state:
+        st.session_state.transformation_history = []
+    return st.session_state.transformation_history
+
+def clear_history():
+    st.session_state.transformation_history = []
+
+def clear_logs():
+    st.session_state.app_logs = []
+
+# =============================================================================
+# EXPORT FORMAT HELPERS
+# =============================================================================
+
+def csv_to_excel(csv_data: bytes | str) -> bytes:
+    """Convert CSV data to Excel format."""
+    try:
+        if isinstance(csv_data, bytes):
+            df = pd.read_csv(io.BytesIO(csv_data), encoding='latin-1')
+        else:
+            df = pd.read_csv(io.StringIO(csv_data))
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Data')
+        output.seek(0)
+        return output.getvalue()
+    except Exception as e:
+        app_logger.error(f"Excel conversion failed: {e}")
+        raise
 
 # =============================================================================
 # EXTERNAL CONFIG LOADER (with fallback to hardcoded defaults)
@@ -363,11 +447,28 @@ st.markdown("""
         background: #f8f9fa;
     }
     
-    /* File uploader */
+    /* File uploader - enhanced drag-and-drop styling */
     .stFileUploader {
         border: 2px dashed #1e3a5f;
         border-radius: 10px;
         padding: 1rem;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        transition: all 0.3s ease;
+    }
+    .stFileUploader:hover {
+        border-color: #2d5a87;
+        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+    }
+    .stFileUploader label {
+        font-weight: 500;
+        color: #1e3a5f;
+    }
+    /* Upload zone helper text */
+    .upload-hint {
+        text-align: center;
+        color: #6c757d;
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
     }
     
     /* Hide Streamlit branding */
@@ -1091,12 +1192,13 @@ class AlarmTransformer:
     
     def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None) -> Tuple[str, Dict]:
         """Transform DynAMo to PHA-Pro format.
-        
+
         Args:
             file_content: The CSV file content
             selected_units: List of units to filter (optional)
             unit_method: "tag_prefix" or "asset_path" (optional, uses config default)
         """
+        app_logger.info(f"Forward transform started - client: {self.client_id}, units: {selected_units}")
         schemas = self.parse_dynamo_csv(file_content)
         
         rows = []
@@ -1354,8 +1456,9 @@ class AlarmTransformer:
         
         # Encode as Latin-1 bytes for proper download
         csv_string = output.getvalue()
+        app_logger.info(f"Forward transform complete - tags: {self.stats['tags']}, alarms: {self.stats['alarms']}")
         return csv_string.encode('latin-1', errors='replace'), self.stats
-    
+
     def transform_forward_abb(self, file_bytes: bytes) -> Tuple[str, Dict]:
         """Transform ABB Excel export to PHA-Pro format (23-column)."""
         tags = self.parse_abb_excel(file_bytes)
@@ -1536,6 +1639,9 @@ class AlarmTransformer:
         
         All other columns preserved from original DynAMo file.
         """
+        source_rows = len(source_data.get('rows', [])) if source_data else 0
+        app_logger.info(f"Reverse transform started - client: {self.client_id}, source rows: {source_rows}")
+
         # Parse PHA-Pro file
         lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
         reader = csv.reader(lines)
@@ -1856,7 +1962,8 @@ class AlarmTransformer:
         except UnicodeEncodeError:
             # If there are characters that can't be encoded as latin-1, use UTF-8
             result = result_str.encode('utf-8')
-        
+
+        app_logger.info(f"Reverse transform complete - tags: {self.stats.get('tags', 0)}, alarms: {self.stats.get('alarms', 0)}")
         return result, self.stats
 
     def generate_change_report(self, pha_content: str, source_data: Dict) -> bytes:
@@ -2588,7 +2695,38 @@ Thanks,
             unsafe_allow_html=True
         )
         st.caption("Attach files/screenshots in your email client")
-    
+
+        # Session History Section
+        st.markdown("---")
+        st.markdown("### 📜 Session History")
+        history = get_history()
+        if history:
+            st.caption(f"{len(history)} transformation(s)")
+            with st.expander("View History", expanded=False):
+                for entry in reversed(history):
+                    st.markdown(f"✅ **{entry['input_file']}**  \n↳ {entry['direction']} | {entry['tags']} tags | {entry['alarms']} alarms  \n<small>{entry['timestamp']}</small>", unsafe_allow_html=True)
+                    st.download_button(f"⬇️ {entry['output_filename']}", entry['output_data'], entry['output_filename'], "text/csv", key=f"hist_{entry['id']}", use_container_width=True)
+                    st.markdown("---")
+                if st.button("🗑️ Clear History", key="clear_hist"):
+                    clear_history()
+                    st.rerun()
+        else:
+            st.caption("No transformations yet")
+
+        # Debug Logs Section
+        with st.expander("🔍 Debug Logs", expanded=False):
+            logs = st.session_state.get('app_logs', [])
+            if logs:
+                st.caption(f"{len(logs)} entries")
+                for log in reversed(logs[-30:]):
+                    color = {'INFO': 'green', 'WARNING': 'orange', 'ERROR': 'red'}.get(log['level'], 'gray')
+                    st.markdown(f"<small><span style='color:{color}'>[{log['level']}]</span> {log['time']} - {log['message']}</small>", unsafe_allow_html=True)
+                if st.button("🗑️ Clear Logs", key="clear_log"):
+                    clear_logs()
+                    st.rerun()
+            else:
+                st.caption("No logs yet")
+
     # Header - dynamic based on client (now after sidebar so we have dcs_name and pha_tool)
     st.markdown("""
     <div class="main-header">
@@ -2608,24 +2746,26 @@ Thanks,
             parser_type = client_config.get("parser", "dynamo")
             
             if parser_type == "abb":
-                st.info(f"Upload your {dcs_name} database export file (Excel .xlsx)")
+                st.markdown(f"**Drag & drop** your {dcs_name} export file below, or click to browse")
                 uploaded_file = st.file_uploader(
-                    f"{dcs_name} Export",
+                    f"📂 {dcs_name} Export (.xlsx)",
                     type=['xlsx', 'xls'],
                     help=f"The Excel file exported from {dcs_name} containing alarm configuration",
                     key=f"forward_abb_{st.session_state.file_uploader_key}"
                 )
+                st.caption("Supported formats: .xlsx, .xls")
                 # ABB doesn't need unit detection - it uses fixed unit
                 unit_filter = ""
                 unit_method_choice = "fixed"
             else:
-                st.info("Upload your alarm database export CSV file")
+                st.markdown(f"**Drag & drop** your {dcs_name} export file below, or click to browse")
                 uploaded_file = st.file_uploader(
-                    "Alarm Database Export CSV",
+                    "📂 Alarm Database Export (.csv)",
                     type=['csv'],
                     help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas",
                     key=f"forward_dynamo_{st.session_state.file_uploader_key}"
                 )
+                st.caption("Supported format: .csv (must contain _DCSVariable, _DCS, _Parameter schemas)")
             
             # Unit detection and selection (only for DynAMo parser)
             if parser_type != "abb":
@@ -2742,27 +2882,28 @@ Best when you need granular unit breakdown.
             source_file = None
             
         else:
-            st.info(f"Upload your {pha_tool} MADB export CSV file")
+            st.markdown(f"**Drag & drop** your {pha_tool} export file below, or click to browse")
             uploaded_file = st.file_uploader(
-                f"{pha_tool} Export CSV",
+                f"📂 {pha_tool} MADB Export (.csv)",
                 type=['csv'],
                 help=f"The CSV file exported from {pha_tool} Alarm Management Database",
                 key=f"reverse_phapro_{st.session_state.file_uploader_key}"
             )
+            st.caption("Supported format: .csv (PHA-Pro MADB export)")
 
             # For DynAMo clients, require original file for mode preservation
             parser_type = client_config.get("parser", "dynamo")
             if parser_type == "dynamo":
                 st.markdown("---")
                 st.markdown(f"**⚠️ Required: Original {dcs_name} export file**")
-                st.caption("Client-specific values must be preserved from the original export.")
+                st.caption("Drag & drop or click to browse. Required to preserve client-specific values.")
                 source_file = st.file_uploader(
-                    f"Original {dcs_name} Export (REQUIRED)",
+                    f"📂 Original {dcs_name} Export (.csv)",
                     type=['csv'],
                     help=f"Upload the original {dcs_name} export to preserve client-specific configuration values.",
                     key=f"reverse_source_{st.session_state.file_uploader_key}"
                 )
-                
+
                 if uploaded_file is not None and source_file is None:
                     st.warning(f"⚠️ Please upload the original {dcs_name} export file. Without it, default values will be used.")
             else:
@@ -3159,28 +3300,42 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
 - Consolidate P&ID naming conventions if needed
 """)
                 
-                # Download button
+                # Download buttons
                 st.markdown("### 📥 Download")
-                
-                col_dl1, col_dl2 = st.columns(2)
-                
+
+                col_dl1, col_dl2, col_dl3 = st.columns(3)
+
                 with col_dl1:
                     st.download_button(
-                        label=f"⬇️ Download {output_filename}",
+                        label=f"📄 CSV",
                         data=output_csv,
                         file_name=output_filename,
                         mime="text/csv",
                         use_container_width=True
                     )
-                
-                # Change Report button (only for DynAMo reverse transform)
+
                 with col_dl2:
+                    try:
+                        excel_data = csv_to_excel(output_csv)
+                        excel_filename = output_filename.replace('.csv', '.xlsx')
+                        st.download_button(
+                            label=f"📊 Excel",
+                            data=excel_data,
+                            file_name=excel_filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    except Exception:
+                        st.caption("Excel export unavailable")
+
+                # Change Report button (only for DynAMo reverse transform)
+                with col_dl3:
                     if parser_type != "abb" and source_data:
                         try:
                             change_report = transformer.generate_change_report(file_content, source_data)
                             report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
                             st.download_button(
-                                label="📊 Download Change Report",
+                                label="📋 Change Report",
                                 data=change_report,
                                 file_name=report_filename,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3197,7 +3352,12 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                     else:
                         preview_df = pd.read_csv(io.StringIO(output_csv), nrows=20)
                     st.dataframe(preview_df, use_container_width=True)
-                
+
+                # Add to transformation history
+                input_name = uploaded_file.name if uploaded_file else "unknown"
+                output_bytes = output_csv if isinstance(output_csv, bytes) else output_csv.encode('latin-1', errors='replace')
+                add_to_history(input_name, direction, selected_client, stats, output_bytes, output_filename)
+
             except Exception as e:
                     error_msg = str(e)
                     
