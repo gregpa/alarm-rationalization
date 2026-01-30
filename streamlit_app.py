@@ -2319,10 +2319,10 @@ def main():
             format_func=lambda x: client_options[x],
             help="Choose the client configuration for tag source rules and mappings"
         )
-        
+
         # Get available areas for this client
         area_options = AlarmTransformer.get_client_areas(selected_client)
-        
+
         # Area/Unit dropdown
         if area_options:
             selected_area = st.selectbox(
@@ -2333,6 +2333,22 @@ def main():
             )
         else:
             selected_area = None
+
+        # Track client/area changes to clear file uploads
+        # Initialize session state for file uploader reset
+        if 'file_uploader_key' not in st.session_state:
+            st.session_state.file_uploader_key = 0
+        if 'previous_client' not in st.session_state:
+            st.session_state.previous_client = selected_client
+        if 'previous_area' not in st.session_state:
+            st.session_state.previous_area = selected_area
+
+        # Check if client or area changed - if so, reset file uploaders
+        if (st.session_state.previous_client != selected_client or
+            st.session_state.previous_area != selected_area):
+            st.session_state.file_uploader_key += 1
+            st.session_state.previous_client = selected_client
+            st.session_state.previous_area = selected_area
         
         # Get the selected client's config for dynamic labels
         client_config = AlarmTransformer.get_client_configs().get(selected_client, {})
@@ -2596,7 +2612,8 @@ Thanks,
                 uploaded_file = st.file_uploader(
                     f"{dcs_name} Export",
                     type=['xlsx', 'xls'],
-                    help=f"The Excel file exported from {dcs_name} containing alarm configuration"
+                    help=f"The Excel file exported from {dcs_name} containing alarm configuration",
+                    key=f"forward_abb_{st.session_state.file_uploader_key}"
                 )
                 # ABB doesn't need unit detection - it uses fixed unit
                 unit_filter = ""
@@ -2606,7 +2623,8 @@ Thanks,
                 uploaded_file = st.file_uploader(
                     "Alarm Database Export CSV",
                     type=['csv'],
-                    help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas"
+                    help=f"The CSV file exported from {dcs_name} containing _DCSVariable, _DCS, _Parameter schemas",
+                    key=f"forward_dynamo_{st.session_state.file_uploader_key}"
                 )
             
             # Unit detection and selection (only for DynAMo parser)
@@ -2728,9 +2746,10 @@ Best when you need granular unit breakdown.
             uploaded_file = st.file_uploader(
                 f"{pha_tool} Export CSV",
                 type=['csv'],
-                help=f"The CSV file exported from {pha_tool} Alarm Management Database"
+                help=f"The CSV file exported from {pha_tool} Alarm Management Database",
+                key=f"reverse_phapro_{st.session_state.file_uploader_key}"
             )
-            
+
             # For DynAMo clients, require original file for mode preservation
             parser_type = client_config.get("parser", "dynamo")
             if parser_type == "dynamo":
@@ -2740,7 +2759,8 @@ Best when you need granular unit breakdown.
                 source_file = st.file_uploader(
                     f"Original {dcs_name} Export (REQUIRED)",
                     type=['csv'],
-                    help=f"Upload the original {dcs_name} export to preserve client-specific configuration values."
+                    help=f"Upload the original {dcs_name} export to preserve client-specific configuration values.",
+                    key=f"reverse_source_{st.session_state.file_uploader_key}"
                 )
                 
                 if uploaded_file is not None and source_file is None:
