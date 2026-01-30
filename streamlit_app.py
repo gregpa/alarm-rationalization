@@ -447,28 +447,11 @@ st.markdown("""
         background: #f8f9fa;
     }
     
-    /* File uploader - enhanced drag-and-drop styling */
+    /* File uploader */
     .stFileUploader {
         border: 2px dashed #1e3a5f;
         border-radius: 10px;
         padding: 1rem;
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        transition: all 0.3s ease;
-    }
-    .stFileUploader:hover {
-        border-color: #2d5a87;
-        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
-    }
-    .stFileUploader label {
-        font-weight: 500;
-        color: #1e3a5f;
-    }
-    /* Upload zone helper text */
-    .upload-hint {
-        text-align: center;
-        color: #6c757d;
-        font-size: 0.9rem;
-        margin-top: 0.5rem;
     }
     
     /* Hide Streamlit branding */
