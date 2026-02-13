@@ -806,7 +806,7 @@ class AlarmTransformer:
             "unit_digits": 2,
             "unit_default": "X",
             "default_source": "Emerson DeltaV (DCS)",
-            "default_area": "10_cdu",
+            "default_area": "valdez_main",
             "tag_source_rules": [],
             "deltav_priority_map": {
                 "CRITICAL": "C",
@@ -828,10 +828,7 @@ class AlarmTransformer:
                 "Process Efficiency": "Economic / Operational",
             },
             "areas": {
-                "10_cdu": {"name": "10 CDU", "description": "Crude Distillation Unit"},
-                "14_dht": {"name": "14 DHT", "description": "Distillate Hydrotreater"},
-                "15_sru": {"name": "15 SRU", "description": "Sulfur Recovery Unit"},
-                "18_h2": {"name": "18 H2", "description": "Hydrogen Unit"},
+                "valdez_main": {"name": "Valdez Main Plant", "description": "Valdez Refinery - All Units"},
             },
         },
     }

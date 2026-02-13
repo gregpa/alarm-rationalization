@@ -418,7 +418,7 @@ petrostar_valdez:
   unit_default: "X"
 
   default_source: "Emerson DeltaV (DCS)"
-  default_area: "10_cdu"
+  default_area: "valdez_main"
 
   # DeltaV Priority -> PHA-Pro Priority Code mapping
   # Strip _N, _FG suffixes first, then apply this map
@@ -455,62 +455,7 @@ petrostar_valdez:
   # No tag source rules needed - single source for all tags
   tag_source_rules: []
 
-  # Area mapping from DeltaV Path top-level element
   areas:
-    10_cdu:
-      name: "10 CDU"
-      description: "Crude Distillation Unit"
-    14_dht:
-      name: "14 DHT"
-      description: "Distillate Hydrotreater"
-    15_sru:
-      name: "15 SRU"
-      description: "Sulfur Recovery Unit"
-    18_h2:
-      name: "18 H2"
-      description: "Hydrogen Unit"
-    20_area:
-      name: "Unit 20"
-      description: "Unit 20 Area"
-    30_area:
-      name: "Unit 30"
-      description: "Unit 30 Area"
-    40_area:
-      name: "Unit 40"
-      description: "Unit 40 Area"
-    cdu_heater:
-      name: "CDU Heater"
-      description: "CDU Heater Section"
-    cdu_tower:
-      name: "CDU Tower"
-      description: "CDU Tower Section"
-    cdu_ovhd:
-      name: "CDU Overhead"
-      description: "CDU Overhead Section"
-    cdu_kerostripper:
-      name: "CDU Kero Stripper"
-      description: "CDU Kerosene Stripper Section"
-    cdu_lagostripper:
-      name: "CDU LAGO Stripper"
-      description: "CDU LAGO Stripper Section"
-    fire_and_gas:
-      name: "Fire & Gas"
-      description: "Fire and Gas Detection System"
-    storm_wtr_tr:
-      name: "Storm Water Treatment"
-      description: "Storm Water Treatment Area"
-    14_sis:
-      name: "14 SIS"
-      description: "Unit 14 Safety Instrumented System"
-    sis:
-      name: "SIS"
-      description: "Safety Instrumented System"
-    area_a:
-      name: "Area A"
-      description: "Area A"
-    flare:
-      name: "Flare"
-      description: "Flare System"
-    miscellaneous:
-      name: "Miscellaneous"
-      description: "Miscellaneous"
+    valdez_main:
+      name: "Valdez Main Plant"
+      description: "Valdez Refinery - All Units"
