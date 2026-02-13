@@ -264,7 +264,8 @@ def _preview_file_data(
     file_content: str,
     transformer: 'AlarmTransformer',
     direction: str,
-    parser_type: str
+    parser_type: str,
+    selected_modes: List[str] = None
 ) -> Dict[str, Any]:
     """
     Preview file data without performing full transformation.
@@ -309,8 +310,18 @@ def _preview_file_data(
                             mode = row[3].strip() if len(row) > 3 else ""
                             tag_name = row[1].strip() if len(row) > 1 else ""
 
-                            # Check mode
-                            if mode.upper() == "NORMAL" or (empty_mode_valid and mode == ""):
+                            # Check mode against selected modes or legacy behavior
+                            mode_valid = False
+                            if selected_modes is not None:
+                                selected_upper = [m.upper() for m in selected_modes if m != "(empty)"]
+                                allow_empty = "(empty)" in selected_modes
+                                if mode.upper() in selected_upper or (allow_empty and mode == ""):
+                                    mode_valid = True
+                            else:
+                                if mode.upper() == "NORMAL" or (empty_mode_valid and mode == ""):
+                                    mode_valid = True
+
+                            if mode_valid:
                                 stats['rows_to_process'] += 1
 
                                 # Extract unit for preview
@@ -1304,7 +1315,7 @@ class AlarmTransformer:
                 'New Individual Alarm Enable Status': 'Maps to DynAMo DisabledValue (TRUE/FALSE)',
             }
     
-    def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None) -> Tuple[str, Dict]:
+    def transform_forward(self, file_content: str, selected_units: List[str] = None, unit_method: str = None, selected_modes: List[str] = None) -> Tuple[str, Dict]:
         """Transform DynAMo to PHA-Pro format.
 
         Args:
@@ -1329,14 +1340,25 @@ class AlarmTransformer:
             if not params:
                 continue
             
-            # Filter to NORMAL mode only (unless empty_mode_is_valid is set for clients like HFS)
-            empty_mode_is_valid = self.config.get("empty_mode_is_valid", False)
-            if empty_mode_is_valid:
-                # For HFS: accept empty mode OR NORMAL mode
-                normal_params = [p for p in params if p.get('mode', '').upper() in ['NORMAL', '']]
+            # Filter by selected modes (user-configurable)
+            # If selected_modes provided, use those; otherwise fall back to config behavior
+            if selected_modes is not None:
+                # User explicitly selected modes - use their selection
+                # Handle "(empty)" as a special token for blank mode values
+                selected_upper = [m.upper() for m in selected_modes if m != "(empty)"]
+                allow_empty = "(empty)" in selected_modes
+                normal_params = [
+                    p for p in params
+                    if p.get('mode', '').upper() in selected_upper
+                    or (allow_empty and p.get('mode', '').strip() == '')
+                ]
             else:
-                # Standard: only NORMAL mode
-                normal_params = [p for p in params if p.get('mode', '').upper() == 'NORMAL']
+                # No explicit selection - use legacy behavior
+                empty_mode_is_valid = self.config.get("empty_mode_is_valid", False)
+                if empty_mode_is_valid:
+                    normal_params = [p for p in params if p.get('mode', '').upper() in ['NORMAL', '']]
+                else:
+                    normal_params = [p for p in params if p.get('mode', '').upper() == 'NORMAL']
             skipped = len(params) - len(normal_params)
             self.stats["skipped_modes"] += skipped
             
@@ -1732,7 +1754,7 @@ class AlarmTransformer:
         
         return output.getvalue(), self.stats
 
-    def transform_reverse(self, file_content: str, source_data: Dict = None) -> Tuple[str, Dict]:
+    def transform_reverse(self, file_content: str, source_data: Dict = None, selected_modes: List[str] = None) -> Tuple[str, Dict]:
         """
         Transform PHA-Pro export back to DynAMo format.
         
@@ -1861,17 +1883,28 @@ class AlarmTransformer:
             alarm_type = original_row[5]
             
             # FILTER: Only include rows with valid mode
-            # - Mode = "NORMAL" is always valid
-            # - Empty mode is valid if empty_mode_is_valid is True (for HFS)
-            # - Skip IMPORT, Export, EXPORT, Base, etc.
+            # If selected_modes provided, use those; otherwise fall back to config behavior
             mode_upper = mode.upper().strip()
-            if mode_upper == "NORMAL":
-                pass  # Valid
-            elif mode_upper == "" and empty_mode_is_valid:
-                pass  # Valid for HFS
+            if selected_modes is not None:
+                # User explicitly selected modes
+                selected_upper = [m.upper() for m in selected_modes if m != "(empty)"]
+                allow_empty = "(empty)" in selected_modes
+                if mode_upper in selected_upper:
+                    pass  # Valid - mode is in user's selection
+                elif allow_empty and mode.strip() == '':
+                    pass  # Valid - empty mode and user selected (empty)
+                else:
+                    self.stats["skipped_modes"] += 1
+                    continue
             else:
-                self.stats["skipped_modes"] += 1
-                continue
+                # Legacy behavior
+                if mode_upper == "NORMAL":
+                    pass  # Valid
+                elif mode_upper == "" and empty_mode_is_valid:
+                    pass  # Valid for HFS
+                else:
+                    self.stats["skipped_modes"] += 1
+                    continue
             
             # Skip placeholder alarm types (~ or empty)
             if not alarm_type or alarm_type.strip() in ['~', '-', '']:
@@ -2080,7 +2113,7 @@ class AlarmTransformer:
         app_logger.info(f"Reverse transform complete - tags: {self.stats.get('tags', 0)}, alarms: {self.stats.get('alarms', 0)}")
         return result, self.stats
 
-    def generate_change_report(self, pha_content: str, source_data: Dict) -> bytes:
+    def generate_change_report(self, pha_content: str, source_data: Dict, selected_modes: List[str] = None) -> bytes:
         """
         Generate an Excel change report comparing original DynAMo values with PHA-Pro changes.
         
@@ -2172,9 +2205,16 @@ class AlarmTransformer:
             mode = original_row[3] if len(original_row) > 3 else ""
             alarm_type = original_row[5]
             
-            # Only process NORMAL mode
-            if mode.upper() != "NORMAL":
-                continue
+            # Filter by selected modes or default to NORMAL
+            mode_upper = mode.upper().strip()
+            if selected_modes is not None:
+                selected_upper = [m.upper() for m in selected_modes if m != "(empty)"]
+                allow_empty = "(empty)" in selected_modes
+                if mode_upper not in selected_upper and not (allow_empty and mode.strip() == ''):
+                    continue
+            else:
+                if mode_upper != "NORMAL":
+                    continue
             
             key = (tag_name, alarm_type)
             if key in seen_keys:
@@ -2713,6 +2753,39 @@ def scan_for_units(file_content: str, client_id: str) -> Tuple[set, set, set]:
     return units_by_prefix, units_by_asset_parent, units_by_asset_child
 
 
+def scan_for_modes(file_content: str) -> set:
+    """
+    Scan a DynAMo file and extract all unique mode values from _Parameter rows.
+
+    Args:
+        file_content: The decoded CSV file content
+
+    Returns:
+        Set of unique mode strings found (e.g., {"NORMAL", "Base", "IMPORT"})
+    """
+    lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    reader = csv.reader(lines)
+
+    modes = set()
+
+    for row in reader:
+        if not row or len(row) < 4:
+            continue
+
+        if row[0].strip() == "_Variable" and len(row) > 2:
+            schema_type = row[2].strip()
+
+            if schema_type == "_Parameter":
+                mode = row[3].strip() if len(row) > 3 else ""
+                if mode:
+                    modes.add(mode)
+                else:
+                    modes.add("(empty)")
+
+    return modes
+
+
+
 # ============================================================
 # STREAMLIT UI
 # ============================================================
@@ -2876,7 +2949,7 @@ def main():
         st.markdown("---")
         st.markdown("### 📊 About")
         st.markdown(f"""
-        **Version:** 3.25  
+        **Version:** 3.26  
         **Client:** {client_options.get(selected_client, 'Unknown')}  
         **Last Updated:** {datetime.now().strftime('%Y-%m-%d')}
         """)
@@ -3206,6 +3279,53 @@ Best when you need granular unit breakdown.
                     placeholder="e.g., 67 or 67,68,70 (leave blank for all)",
                     help="Enter unit numbers separated by commas to filter. Leave blank to process all units."
                 )
+
+                # Mode detection and selection (DynAMo clients only)
+                if uploaded_file is not None and file_content:
+                    detected_modes = scan_for_modes(file_content)
+
+                    if detected_modes:
+                        st.markdown("### 🔄 Mode Selection")
+
+                        sorted_modes = sorted(detected_modes)
+                        mode_count_str = ", ".join(sorted_modes)
+                        st.caption(f"Modes found in file: {mode_count_str}")
+
+                        # "All Modes" checkbox
+                        all_modes = st.checkbox(
+                            "Select All Modes",
+                            value=True,
+                            help="When checked, all modes are processed. Uncheck to select specific modes.",
+                            key="all_modes_forward"
+                        )
+
+                        if all_modes:
+                            selected_modes_ui = sorted_modes
+                        else:
+                            selected_modes_ui = st.multiselect(
+                                "Select Mode(s) to Process",
+                                options=sorted_modes,
+                                default=["NORMAL"] if "NORMAL" in sorted_modes else sorted_modes[:1],
+                                help="""**What are modes?**\n
+Alarm databases can contain multiple configurations (modes) for the same tag/alarm.\n
+- **NORMAL** — Active operating configuration (most common for rationalization)\n
+- **Base** — Baseline template configuration\n
+- **IMPORT / Export** — Administrative/transfer configurations\n
+- **Startup / Shutdown** — Special operating state configurations\n\n
+**When to use "All":** Select all modes if your file only contains one mode (e.g., only "Base") or if you need to process all configurations.\n\n
+**When to select specific modes:** If your file has multiple modes and you only want to rationalize the active configuration, select just "NORMAL"."""
+                            )
+
+                        # Store in session state
+                        st.session_state['selected_modes_forward'] = selected_modes_ui
+
+                        # Show count
+                        if selected_modes_ui:
+                            st.info(f"ℹ️ Processing {len(selected_modes_ui)} mode(s): {', '.join(selected_modes_ui)}")
+                        else:
+                            st.warning("⚠️ No modes selected — transformation will produce no output.")
+                    else:
+                        st.session_state['selected_modes_forward'] = None
                 
                 # Store the method choice in session state for use during transform
                 if 'unit_method_choice' not in st.session_state:
@@ -3246,6 +3366,59 @@ Best when you need granular unit breakdown.
 
                 if uploaded_file is not None and source_file is None:
                     st.warning(f"⚠️ Please upload the original {dcs_name} export file. Without it, default values will be used.")
+
+                # Mode detection for reverse transform (from source file)
+                if source_file is not None:
+                    source_raw_peek = source_file.read()
+                    source_file.seek(0)
+
+                    source_content_peek = None
+                    for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                        try:
+                            source_content_peek = source_raw_peek.decode(enc)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+
+                    if source_content_peek:
+                        detected_modes_rev = scan_for_modes(source_content_peek)
+
+                        if detected_modes_rev:
+                            st.markdown("### 🔄 Mode Selection")
+
+                            sorted_modes_rev = sorted(detected_modes_rev)
+                            mode_count_str_rev = ", ".join(sorted_modes_rev)
+                            st.caption(f"Modes found in source file: {mode_count_str_rev}")
+
+                            all_modes_rev = st.checkbox(
+                                "Select All Modes",
+                                value=True,
+                                help="When checked, all modes from the source file are included in the output. Uncheck to select specific modes.",
+                                key="all_modes_reverse"
+                            )
+
+                            if all_modes_rev:
+                                selected_modes_rev_ui = sorted_modes_rev
+                            else:
+                                selected_modes_rev_ui = st.multiselect(
+                                    "Select Mode(s) to Process",
+                                    options=sorted_modes_rev,
+                                    default=["NORMAL"] if "NORMAL" in sorted_modes_rev else sorted_modes_rev[:1],
+                                    help="""**What are modes?**\n
+Alarm databases can contain multiple configurations (modes) for the same tag/alarm.\n
+Select which modes to include in the DCS return file.\n\n
+**Important:** The mode value in each row is preserved exactly as-is from the original file — it is never modified. This selection only controls which rows are included in the output.""",
+                                    key="mode_multiselect_reverse"
+                                )
+
+                            st.session_state['selected_modes_reverse'] = selected_modes_rev_ui
+
+                            if selected_modes_rev_ui:
+                                st.info(f"ℹ️ Processing {len(selected_modes_rev_ui)} mode(s): {', '.join(selected_modes_rev_ui)}")
+                            else:
+                                st.warning("⚠️ No modes selected — transformation will produce no output.")
+                        else:
+                            st.session_state['selected_modes_reverse'] = None
             else:
                 # ABB clients - optional source file for Change Report
                 st.markdown("---")
@@ -3386,11 +3559,19 @@ Best when you need granular unit breakdown.
                     file_content = uploaded_file.getvalue().decode('utf-8', errors='replace')
                     uploaded_file.seek(0)  # Reset file pointer
 
+                    # Get selected modes for preview
+                    preview_modes = None
+                    if direction == "forward":
+                        preview_modes = st.session_state.get('selected_modes_forward', None)
+                    else:
+                        preview_modes = st.session_state.get('selected_modes_reverse', None)
+
                     preview_stats = _preview_file_data(
                         file_content,
                         temp_transformer,
                         direction,
-                        parser_type
+                        parser_type,
+                        preview_modes
                     )
 
                     # Display preview stats
@@ -3506,7 +3687,9 @@ Best when you need granular unit breakdown.
                         progress_bar.progress(60, text="Transforming to PHA-Pro format...")
 
                         # Transform
-                        output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method)
+                        # Get selected modes from session state
+                        selected_modes = st.session_state.get('selected_modes_forward', None)
+                        output_csv, stats = transformer.transform_forward(file_content, selected_units, unit_method, selected_modes)
                         output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
 
                         progress_bar.progress(100, text="Complete!")
@@ -3579,7 +3762,9 @@ Best when you need granular unit breakdown.
                         progress_bar.progress(60, text=f"Transforming {len(source_data['rows']):,} alarm rows...")
 
                         # Transform (merge PHA-Pro changes with original data)
-                        output_csv, stats = transformer.transform_reverse(file_content, source_data)
+                        # Get selected modes from session state
+                        selected_modes_rev = st.session_state.get('selected_modes_reverse', None)
+                        output_csv, stats = transformer.transform_reverse(file_content, source_data, selected_modes_rev)
                         output_filename = f"{selected_client.upper()}_{dcs_name}_Return.csv"
 
                         progress_bar.progress(100, text="Complete!")
@@ -3639,7 +3824,8 @@ Best when you need granular unit breakdown.
                 
                 # Show skipped modes info with expandable explanation
                 if stats.get('skipped_modes', 0) > 0:
-                    st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped (non-NORMAL modes: IMPORT, Export, etc.)")
+                    skipped_mode_label = "non-selected modes" if st.session_state.get('selected_modes_forward') or st.session_state.get('selected_modes_reverse') else "non-NORMAL modes"
+                    st.info(f"ℹ️ {stats['skipped_modes']:,} rows skipped ({skipped_mode_label})")
                     
                     with st.expander("📝 Click here to understand why rows were skipped"):
                         st.markdown("""
@@ -3727,7 +3913,8 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
                                 change_report = transformer.generate_change_report_abb(file_content, source_bytes)
                             else:
                                 # DynAMo Change Report
-                                change_report = transformer.generate_change_report(file_content, source_data)
+                                selected_modes_rep = st.session_state.get('selected_modes_reverse', None)
+                                change_report = transformer.generate_change_report(file_content, source_data, selected_modes_rep)
                             report_filename = f"{selected_client.upper()}_{dcs_name}_Change_Report.xlsx"
                             st.download_button(
                                 label="📋 Change Report",
@@ -3847,3 +4034,4 @@ Before importing to PHA-Pro, please review and consolidate P&ID references:
 
 if __name__ == "__main__":
     main()
+
