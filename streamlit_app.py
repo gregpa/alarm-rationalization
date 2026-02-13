@@ -151,8 +151,8 @@ def validate_client_configs(configs: Dict[str, Any]) -> List[Dict[str, str]]:
         return issues
 
     # Valid values for validation
-    valid_parsers = {'dynamo', 'abb'}
-    valid_unit_methods = {'TAG_PREFIX', 'ASSET_PARENT', 'ASSET_CHILD', 'FIXED'}
+    valid_parsers = {'dynamo', 'abb', 'deltav'}
+    valid_unit_methods = {'TAG_PREFIX', 'ASSET_PARENT', 'ASSET_CHILD', 'FIXED', 'PATH_PREFIX'}
     valid_rule_types = {'exact', 'prefix', 'contains', 'in'}
     required_fields = ['name', 'parser', 'default_source']
 
@@ -675,6 +675,19 @@ class AlarmTransformer:
         "Maximum Time to Resolve"
     ]
     
+    # Petrostar PHA-Pro 27-column headers (custom DeltaV format)
+    PHAPRO_HEADERS_PETROSTAR = [
+        "Unit", "Tag Name", "Old Tag Description", "New Tag Description", "P&ID",
+        "Range Min", "Range Max", "Engineering Units", "Tag Source",
+        "Rationalization (Tag) Comment", "Alarm Type",
+        "Old Individual Alarm Enable Status", "New Individual Alarm Enable Status",
+        "Old (BPCS) Priority", "New (BPCS) Priority", "Old Limit", "New Limit",
+        "Old Deadband", "New Deadband", "Old On-Delay Time", "New On-Delay Time",
+        "Old Off-Delay Time", "New Off-Delay Time",
+        "Rationalization Status", "Alarm Status", "Rationalization (Alarm) Comment",
+        "Alarm Class",
+    ]
+
     # Client configurations with Unit/Area hierarchy
     # NOTE: These are FALLBACK defaults. External configs from config/clients.yaml take precedence.
     # Edit config/clients.yaml instead of modifying these values directly.
@@ -782,6 +795,45 @@ class AlarmTransformer:
             },
             "default_area": "line_1",
         },
+        "petrostar_valdez": {
+            "name": "Petrostar - Valdez",
+            "vendor": "Emerson DeltaV",
+            "dcs_name": "DeltaV",
+            "pha_tool": "PHA-Pro",
+            "parser": "deltav",
+            "phapro_headers": "PETROSTAR",
+            "unit_method": "PATH_PREFIX",
+            "unit_digits": 2,
+            "unit_default": "X",
+            "default_source": "Emerson DeltaV (DCS)",
+            "default_area": "10_cdu",
+            "tag_source_rules": [],
+            "deltav_priority_map": {
+                "CRITICAL": "C",
+                "WARNING": "W",
+                "ADVISORY": "Ad",
+                "SOL_ALARM": "O",
+                "NOL_ALARM": "O",
+                "LOG": "Lg",
+            },
+            "deltav_priority_suffixes": ["_N", "_FG"],
+            "deltav_alarm_status": {
+                "C": "Alarm", "W": "Alarm", "Ad": "Alarm",
+                "O": "Alarm", "Lg": "Event", "N": "",
+            },
+            "deltav_alarm_class_map": {
+                "Safety": "Safety / PSM",
+                "Environmental Protection": "Regulatory",
+                "Equipment Protection": "Economic / Operational",
+                "Process Efficiency": "Economic / Operational",
+            },
+            "areas": {
+                "10_cdu": {"name": "10 CDU", "description": "Crude Distillation Unit"},
+                "14_dht": {"name": "14 DHT", "description": "Distillate Hydrotreater"},
+                "15_sru": {"name": "15 SRU", "description": "Sulfur Recovery Unit"},
+                "18_h2": {"name": "18 H2", "description": "Hydrogen Unit"},
+            },
+        },
     }
 
     @classmethod
@@ -853,6 +905,10 @@ class AlarmTransformer:
         phapro_format = self.config.get("phapro_headers", "FLNG")
         if phapro_format == "HFS":
             return self.HFS_PHAPRO_HEADERS
+        elif phapro_format == "PETROSTAR":
+            return self.PHAPRO_HEADERS_PETROSTAR
+        elif self.config.get("parser") == "abb":
+            return self.ABB_PHAPRO_HEADERS
         else:
             return self.PHAPRO_HEADERS
     
@@ -1090,7 +1146,96 @@ class AlarmTransformer:
             return "00"
         
         return unit_from_prefix  # default fallback
-    
+
+    # =========================================================================
+    # DeltaV Support Methods
+    # =========================================================================
+
+    def parse_deltav_xml(self, raw_bytes: bytes) -> list:
+        """Parse DeltaV SAMAlarmsReport XML into list of alarm dicts."""
+        import xml.etree.ElementTree as ET
+
+        try:
+            root = ET.fromstring(raw_bytes)
+        except ET.ParseError:
+            # Retry with explicit UTF-8 decoding (handles BOM or encoding mismatches)
+            root = ET.fromstring(raw_bytes.decode("utf-8-sig").encode("utf-8"))
+
+        alarms = []
+
+        for alarm_elem in root.findall('.//Alarm'):
+            record = {}
+            for child in alarm_elem:
+                record[child.tag] = (child.text or '').strip()
+            alarms.append(record)
+
+        app_logger.info(f"Parsed {len(alarms)} alarm records from DeltaV XML")
+        return alarms
+
+    def map_deltav_priority(self, deltav_priority: str) -> str:
+        """Map DeltaV priority to PHA-Pro priority code.
+
+        Strips known suffixes (_N, _FG), then looks up in deltav_priority_map.
+        Defaults to "N" if no match.
+        """
+        priority = deltav_priority.strip() if deltav_priority else ""
+
+        for suffix in self.config.get("deltav_priority_suffixes", ["_N", "_FG"]):
+            if priority.endswith(suffix):
+                priority = priority[:-len(suffix)]
+                break
+
+        pri_map = self.config.get("deltav_priority_map", {})
+        return pri_map.get(priority, "N")
+
+    def derive_deltav_alarm_status(self, priority_code: str) -> str:
+        """Derive Alarm Status from the mapped priority code."""
+        status_map = self.config.get("deltav_alarm_status", {
+            "C": "Alarm", "W": "Alarm", "Ad": "Alarm",
+            "O": "Alarm", "Lg": "Event", "N": ""
+        })
+        return status_map.get(priority_code, "")
+
+    def extract_deltav_area(self, path: str) -> str:
+        """Extract area from DeltaV Path field (first element before /)."""
+        if not path:
+            return ""
+        return path.split("/")[0]
+
+    def extract_deltav_unit(self, tag_name: str, path: str = "") -> str:
+        """Extract unit from DeltaV tag using PATH_PREFIX method.
+
+        Priority:
+        1. Extract 2-digit prefix from Path top-level (e.g., "14_DHT" -> "14")
+        2. If no digits in path, fall back to tag name prefix (e.g., "18-AI-6128" -> "18")
+        3. If tag prefix non-numeric, search for -NN- pattern (e.g., "EM-10-1005B" -> "10")
+        4. Default to configured unit_default (e.g., "X")
+        """
+        import re
+        digits = self.config.get("unit_digits", 2)
+        default = self.config.get("unit_default", "X")
+
+        # Step 1: Path top-level
+        if path:
+            top = path.split("/")[0]
+            m = re.match(r'^(\d{' + str(digits) + '})', top)
+            if m:
+                return m.group(1)
+
+        # Step 2: Tag prefix
+        if tag_name and len(tag_name) >= digits:
+            prefix = tag_name[:digits]
+            if prefix.isdigit():
+                return prefix
+
+        # Step 3: Search tag for -NN- or _NN_ pattern
+        if tag_name:
+            m = re.search(r'[\-_](\d{' + str(digits) + r'})[\-_]', tag_name)
+            if m:
+                return m.group(1)
+
+        return default
+
     def derive_tag_source(self, tag_name: str, point_type: str) -> Tuple[str, str]:
         """Derive tag source and enforcement from rules."""
         pt_upper = point_type.upper() if point_type else ""
@@ -1667,7 +1812,102 @@ class AlarmTransformer:
         writer.writerows(rows)
         
         return output.getvalue(), self.stats
-    
+
+    def transform_forward_deltav(self, raw_bytes: bytes) -> Tuple[bytes, Dict]:
+        """Transform DeltaV SAMAlarmsReport XML to PHA-Pro 27-column CSV.
+
+        Returns: (csv_bytes, stats_dict)
+        """
+        app_logger.info(f"DeltaV forward transform started - client: {self.client_id}")
+        alarms = self.parse_deltav_xml(raw_bytes)
+
+        headers = self.PHAPRO_HEADERS_PETROSTAR
+        rows = []
+        tag_set = set()
+
+        default_source = self.config.get("default_source", "Emerson DeltaV (DCS)")
+
+        for alarm in alarms:
+            tag_name = alarm.get("AlarmSourceName", "")
+            tag_desc = alarm.get("AlarmSourceDescription", "")
+            attribute = alarm.get("Attribute", "")
+            enable = alarm.get("Enable", "")
+            priority = alarm.get("Priority", "")
+            limit = alarm.get("LimitValue", "")
+            hysteresis = alarm.get("Hysteresis", "")
+            on_delay = alarm.get("OnDelay", "")
+            off_delay = alarm.get("OffDelay", "")
+            path = alarm.get("Path", "")
+            func_class = alarm.get("FunctionalClassificationName", "")
+
+            # Map fields
+            unit = self.extract_deltav_unit(tag_name, path)
+            area = self.extract_deltav_area(path)
+            pri_code = self.map_deltav_priority(priority)
+            alarm_status = self.derive_deltav_alarm_status(pri_code)
+
+            tag_set.add(tag_name)
+
+            # Map Alarm Class from FunctionalClassificationName
+            alarm_class = ""
+            if func_class and func_class != "Not classified":
+                alarm_class_map = self.config.get("deltav_alarm_class_map", {
+                    "Safety": "Safety / PSM",
+                    "Environmental Protection": "Regulatory",
+                    "Equipment Protection": "Economic / Operational",
+                    "Process Efficiency": "Economic / Operational",
+                })
+                alarm_class = alarm_class_map.get(func_class, "")
+
+            row = [
+                unit,                       # 0  Unit
+                tag_name,                   # 1  Tag Name
+                tag_desc,                   # 2  Old Tag Description
+                tag_desc,                   # 3  New Tag Description
+                "",                         # 4  P&ID
+                "",                         # 5  Range Min
+                "",                         # 6  Range Max
+                "",                         # 7  Engineering Units
+                default_source,             # 8  Tag Source
+                area,                       # 9  Rationalization (Tag) Comment
+                attribute,                  # 10 Alarm Type
+                enable,                     # 11 Old Individual Alarm Enable Status
+                enable,                     # 12 New Individual Alarm Enable Status
+                pri_code,                   # 13 Old (BPCS) Priority
+                pri_code,                   # 14 New (BPCS) Priority
+                limit,                      # 15 Old Limit
+                limit,                      # 16 New Limit
+                hysteresis,                 # 17 Old Deadband
+                hysteresis,                 # 18 New Deadband
+                on_delay,                   # 19 Old On-Delay Time
+                on_delay,                   # 20 New On-Delay Time
+                off_delay,                  # 21 Old Off-Delay Time
+                off_delay,                  # 22 New Off-Delay Time
+                "Not Started_x",            # 23 Rationalization Status
+                alarm_status,               # 24 Alarm Status
+                "",                         # 25 Rationalization (Alarm) Comment
+                alarm_class,                # 26 Alarm Class
+            ]
+            rows.append(row)
+
+        self.stats = {
+            "total_alarms": len(rows),
+            "unique_tags": len(tag_set),
+            "tags": len(tag_set),
+            "alarms": len(rows),
+            "units": set(),
+        }
+
+        app_logger.info(f"DeltaV forward transform complete - tags: {len(tag_set)}, alarms: {len(rows)}")
+
+        # Generate CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+        return output.getvalue().encode("utf-8"), self.stats
+
     def transform_reverse_abb(self, file_content: str) -> Tuple[str, Dict]:
         """Transform PHA-Pro export back to ABB 8-column format."""
         lines = file_content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
@@ -3170,6 +3410,18 @@ Thanks,
                 # ABB doesn't need unit detection - it uses fixed unit
                 unit_filter = ""
                 unit_method_choice = "fixed"
+            elif parser_type == "deltav":
+                st.markdown(f"**Drag & drop** your {dcs_name} SAMAlarmsReport XML file below, or click to browse")
+                uploaded_file = st.file_uploader(
+                    f"📂 {dcs_name} SAMAlarmsReport (.xml)",
+                    type=['xml'],
+                    help=f"The XML file exported from {dcs_name} SAMA Alarms Report",
+                    key=f"forward_deltav_{st.session_state.file_uploader_key}"
+                )
+                st.caption("Supported format: .xml (DeltaV SAMAlarmsReport)")
+                # DeltaV uses PATH_PREFIX unit extraction automatically - no user selection needed
+                unit_filter = ""
+                unit_method_choice = "path_prefix"
             else:
                 st.markdown(f"**Drag & drop** your {dcs_name} export file below, or click to browse")
                 uploaded_file = st.file_uploader(
@@ -3181,7 +3433,7 @@ Thanks,
                 st.caption("Supported format: .csv (must contain _DCSVariable, _DCS, _Parameter schemas)")
             
             # Unit detection and selection (only for DynAMo parser)
-            if parser_type != "abb":
+            if parser_type not in ("abb", "deltav"):
                 unit_filter = ""
                 unit_method_choice = "tag_prefix"  # default
                 
@@ -3332,11 +3584,17 @@ Alarm databases can contain multiple configurations (modes) for the same tag/ala
                     st.session_state.unit_method_choice = "tag_prefix"
                 if uploaded_file is not None and parser_type == "dynamo":
                     st.session_state.unit_method_choice = unit_method_choice
-            else:
+            elif parser_type == "abb":
                 # ABB uses fixed unit from config - only show after file uploaded
                 if uploaded_file is not None:
                     unit_value = client_config.get('unit_value', 'Line 1')
                     st.markdown(f"### 📊 Unit: **{unit_value}**")
+                    st.markdown("---")
+            elif parser_type == "deltav":
+                # DeltaV extracts units automatically from tag/path prefix
+                if uploaded_file is not None:
+                    st.markdown("### 📊 Unit Extraction: **Automatic (from tag/path prefix)**")
+                    st.caption("Units are extracted automatically from the DeltaV path and tag name prefix.")
                     st.markdown("---")
             
             source_file = None
@@ -3419,7 +3677,7 @@ Select which modes to include in the DCS return file.\n\n
                                 st.warning("⚠️ No modes selected — transformation will produce no output.")
                         else:
                             st.session_state['selected_modes_reverse'] = None
-            else:
+            elif parser_type == "abb":
                 # ABB clients - optional source file for Change Report
                 st.markdown("---")
                 st.markdown(f"**📊 Optional: Original {dcs_name} export for Change Report**")
@@ -3430,7 +3688,11 @@ Select which modes to include in the DCS return file.\n\n
                     help=f"Upload the original {dcs_name} Excel export to enable Change Report generation.",
                     key=f"reverse_source_abb_{st.session_state.file_uploader_key}"
                 )
-            
+            else:
+                # DeltaV - reverse transform not yet supported
+                st.info("ℹ️ Reverse transformation is not yet available for DeltaV clients.")
+                source_file = None
+
             unit_filter = None
     
     with col2:
@@ -3443,6 +3705,13 @@ Select which modes to include in the DCS return file.\n\n
                 st.markdown(f"""
                 **{pha_tool} 23-Column Import**
                 - Hierarchical format
+                - Unit/Tag/Alarm structure
+                - Ready for MADB import
+                """)
+            elif parser_type == "deltav":
+                st.markdown(f"""
+                **{pha_tool} 27-Column Import**
+                - Custom Petrostar format
                 - Unit/Tag/Alarm structure
                 - Ready for MADB import
                 """)
@@ -3652,6 +3921,16 @@ Select which modes to include in the DCS return file.\n\n
 
                         progress_bar.progress(50, text="Transforming to PHA-Pro format...")
                         output_csv, stats = transformer.transform_forward_abb(raw_bytes)
+                        output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
+
+                        progress_bar.progress(100, text="Complete!")
+                    elif parser_type == "deltav":
+                        # DeltaV uses XML
+                        progress_bar.progress(20, text="Reading XML file...")
+                        raw_bytes = uploaded_file.read()
+
+                        progress_bar.progress(50, text="Transforming DeltaV data to PHA-Pro format...")
+                        output_csv, stats = transformer.transform_forward_deltav(raw_bytes)
                         output_filename = f"{selected_client.upper()}_{pha_tool}_Import.csv"
 
                         progress_bar.progress(100, text="Complete!")

@@ -106,6 +106,38 @@ This document provides a complete reference for how fields are mapped between DC
 | 41 | Costs / Production | Empty |
 | 42 | Maximum Time to Resolve | _Parameter TimeToRespond |
 
+### Petrostar Format (27 columns) - `PHAPRO_HEADERS_PETROSTAR`
+
+| Index | Column Name | Source |
+|-------|-------------|--------|
+| 0 | Unit | Extracted from DeltaV Path/tag (PATH_PREFIX method) |
+| 1 | Tag Name | AlarmSourceName |
+| 2 | Old Tag Description | AlarmSourceDescription |
+| 3 | New Tag Description | AlarmSourceDescription (copy) |
+| 4 | P&ID | Empty |
+| 5 | Range Min | Empty |
+| 6 | Range Max | Empty |
+| 7 | Engineering Units | Empty |
+| 8 | Tag Source | "Emerson DeltaV (DCS)" (single source) |
+| 9 | Rationalization (Tag) Comment | Path top-level area (e.g., "14_DHT") |
+| 10 | Alarm Type | Attribute (e.g., HI_ALM, LO_LO_ALM) |
+| 11 | Old Individual Alarm Enable Status | Enable (True/False) |
+| 12 | New Individual Alarm Enable Status | Enable (copy) |
+| 13 | Old (BPCS) Priority | Mapped from DeltaV Priority (C/W/Ad/O/Lg/N) |
+| 14 | New (BPCS) Priority | Mapped from DeltaV Priority (copy) |
+| 15 | Old Limit | LimitValue |
+| 16 | New Limit | LimitValue (copy) |
+| 17 | Old Deadband | Hysteresis |
+| 18 | New Deadband | Hysteresis (copy) |
+| 19 | Old On-Delay Time | OnDelay |
+| 20 | New On-Delay Time | OnDelay (copy) |
+| 21 | Old Off-Delay Time | OffDelay |
+| 22 | New Off-Delay Time | OffDelay (copy) |
+| 23 | Rationalization Status | "Not Started_x" |
+| 24 | Alarm Status | Derived from priority (Alarm/Event/"") |
+| 25 | Rationalization (Alarm) Comment | Empty |
+| 26 | Alarm Class | FunctionalClassificationName (mapped) |
+
 ### ABB Format (23 columns) - `ABB_PHAPRO_HEADERS`
 
 | Index | Column Name | Source |
@@ -240,6 +272,8 @@ For reverse transformations (PHA-Pro to DynAMo), the output uses these headers:
 
 ## Priority Mapping
 
+### DynAMo Priority Mapping
+
 | DynAMo Priority | PHA-Pro Code | Alarm Status |
 |-----------------|--------------|--------------|
 | URGENT (1-2) | U | Active |
@@ -249,6 +283,25 @@ For reverse transformations (PHA-Pro to DynAMo), the output uses these headers:
 | LOW (9-10) | L | Active |
 | JOURNAL (11-12) | J | Journal |
 | JOURNAL (disabled) | Jo | Shelved |
+
+### DeltaV Priority Mapping (Petrostar)
+
+Suffixes `_N` and `_FG` are stripped before mapping.
+
+| DeltaV Priority | PHA-Pro Code | Alarm Status |
+|-----------------|--------------|--------------|
+| CRITICAL | C | Alarm |
+| CRITICAL_N | C | Alarm |
+| CRITICAL_FG | C | Alarm |
+| WARNING | W | Alarm |
+| WARNING_N | W | Alarm |
+| WARNING_FG | W | Alarm |
+| ADVISORY | Ad | Alarm |
+| ADVISORY_N | Ad | Alarm |
+| SOL_ALARM | O | Alarm |
+| NOL_ALARM | O | Alarm |
+| LOG | Lg | Event |
+| (unknown) | N | (empty) |
 
 ---
 
@@ -288,3 +341,4 @@ For reverse transformations (PHA-Pro to DynAMo), the output uses these headers:
 | 2026-01 | Initial creation with verified mappings |
 | 2026-01 | Added HFS format (43 columns with delay fields) |
 | 2026-01 | Added ABB format (23 columns) |
+| 2026-02 | Added Petrostar/DeltaV format (27 columns) with DeltaV priority mapping |

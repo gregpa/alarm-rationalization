@@ -32,7 +32,7 @@ class TestAlarmTransformerInit:
         """All expected clients should be configured."""
         from streamlit_app import AlarmTransformer
 
-        expected_clients = ["flng", "hfs_artesia", "rt_bessemer"]
+        expected_clients = ["flng", "hfs_artesia", "rt_bessemer", "petrostar_valdez"]
         for client_id in expected_clients:
             assert client_id in AlarmTransformer.get_client_configs()
 
@@ -351,6 +351,7 @@ class TestExternalConfigLoader:
         assert "flng" in configs
         assert "hfs_artesia" in configs
         assert "rt_bessemer" in configs
+        assert "petrostar_valdez" in configs
 
     def test_config_structure_is_valid(self):
         """Each client config should have required keys."""
@@ -544,3 +545,150 @@ class TestConfigValidator:
         issues = validate_client_configs(configs)
         errors = [i for i in issues if i['level'] == 'error']
         assert len(errors) == 0, f"Current configs have errors: {errors}"
+
+
+class TestDeltaVSupport:
+    """Test DeltaV (Petrostar Valdez) client support."""
+
+    def test_petrostar_client_loads(self, transformer_petrostar):
+        """Petrostar client should load with correct configuration."""
+        assert transformer_petrostar.client_id == "petrostar_valdez"
+        assert transformer_petrostar.config["name"] == "Petrostar - Valdez"
+        assert transformer_petrostar.config["parser"] == "deltav"
+        assert transformer_petrostar.config["phapro_headers"] == "PETROSTAR"
+
+    def test_deltav_priority_mapping(self, transformer_petrostar):
+        """All 11 DeltaV priorities should map to correct PHA-Pro codes."""
+        test_cases = [
+            ("CRITICAL", "C"),
+            ("CRITICAL_N", "C"),
+            ("CRITICAL_FG", "C"),
+            ("WARNING", "W"),
+            ("WARNING_N", "W"),
+            ("WARNING_FG", "W"),
+            ("ADVISORY", "Ad"),
+            ("ADVISORY_N", "Ad"),
+            ("SOL_ALARM", "O"),
+            ("NOL_ALARM", "O"),
+            ("LOG", "Lg"),
+        ]
+        for deltav_pri, expected_code in test_cases:
+            result = transformer_petrostar.map_deltav_priority(deltav_pri)
+            assert result == expected_code, f"{deltav_pri} should map to {expected_code}, got {result}"
+
+    def test_deltav_priority_suffix_stripping(self, transformer_petrostar):
+        """_N and _FG suffixes should be stripped before mapping."""
+        assert transformer_petrostar.map_deltav_priority("CRITICAL_N") == "C"
+        assert transformer_petrostar.map_deltav_priority("WARNING_FG") == "W"
+        assert transformer_petrostar.map_deltav_priority("ADVISORY_N") == "Ad"
+
+    def test_deltav_priority_unknown_defaults_to_n(self, transformer_petrostar):
+        """Unknown priority should default to N."""
+        assert transformer_petrostar.map_deltav_priority("UNKNOWN") == "N"
+        assert transformer_petrostar.map_deltav_priority("") == "N"
+
+    def test_deltav_unit_path_prefix(self, transformer_petrostar):
+        """PATH_PREFIX should extract unit from path top-level."""
+        assert transformer_petrostar.extract_deltav_unit("14-TI-1234", "14_DHT/V-14203/CTRL_MOD") == "14"
+        assert transformer_petrostar.extract_deltav_unit("18-AI-6128", "18_H2/H2-UNIT/CTRL_MOD") == "18"
+        assert transformer_petrostar.extract_deltav_unit("15-FI-001", "15_SRU/CTRL_MOD") == "15"
+
+    def test_deltav_unit_tag_fallback(self, transformer_petrostar):
+        """Should fall back to tag prefix when path has no digits."""
+        assert transformer_petrostar.extract_deltav_unit("18-AI-6128", "FIRE_AND_GAS/FG_SYSTEM") == "18"
+        assert transformer_petrostar.extract_deltav_unit("14-TI-1234", "") == "14"
+
+    def test_deltav_unit_regex_fallback(self, transformer_petrostar):
+        """Should find -NN- pattern for non-numeric prefix tags."""
+        assert transformer_petrostar.extract_deltav_unit("EM-10-1005B", "FIRE_AND_GAS/FG_SYSTEM") == "10"
+
+    def test_deltav_unit_default(self, transformer_petrostar):
+        """Should return default 'X' when no unit can be extracted."""
+        assert transformer_petrostar.extract_deltav_unit("FGS-DET-001", "FIRE_AND_GAS/FG_SYSTEM") == "X"
+
+    def test_deltav_area_extraction(self, transformer_petrostar):
+        """Path should be split on / and first element returned as area."""
+        assert transformer_petrostar.extract_deltav_area("14_DHT/V-14203/CTRL_MOD/14-TI-1234/HI_ALM") == "14_DHT"
+        assert transformer_petrostar.extract_deltav_area("10_CDU/CDU_TOWER/CTRL_MOD") == "10_CDU"
+        assert transformer_petrostar.extract_deltav_area("FIRE_AND_GAS/FG_SYSTEM") == "FIRE_AND_GAS"
+        assert transformer_petrostar.extract_deltav_area("") == ""
+
+    def test_deltav_alarm_status_derivation(self, transformer_petrostar):
+        """Priority codes should derive correct alarm status."""
+        assert transformer_petrostar.derive_deltav_alarm_status("C") == "Alarm"
+        assert transformer_petrostar.derive_deltav_alarm_status("W") == "Alarm"
+        assert transformer_petrostar.derive_deltav_alarm_status("Ad") == "Alarm"
+        assert transformer_petrostar.derive_deltav_alarm_status("O") == "Alarm"
+        assert transformer_petrostar.derive_deltav_alarm_status("Lg") == "Event"
+        assert transformer_petrostar.derive_deltav_alarm_status("N") == ""
+
+    def test_phapro_headers_petrostar_length(self):
+        """Petrostar headers should have exactly 27 columns."""
+        from streamlit_app import AlarmTransformer
+
+        assert len(AlarmTransformer.PHAPRO_HEADERS_PETROSTAR) == 27
+
+    def test_phapro_headers_petrostar_via_config(self, transformer_petrostar):
+        """get_phapro_headers should return 27-column Petrostar format."""
+        headers = transformer_petrostar.get_phapro_headers()
+        assert len(headers) == 27
+        assert headers[0] == "Unit"
+        assert headers[1] == "Tag Name"
+        assert headers[26] == "Alarm Class"
+
+    def test_deltav_xml_parsing(self, transformer_petrostar, sample_deltav_xml):
+        """DeltaV XML should parse into list of alarm dicts."""
+        alarms = transformer_petrostar.parse_deltav_xml(sample_deltav_xml)
+        assert isinstance(alarms, list)
+        assert len(alarms) == 5
+
+        # Check first alarm fields
+        first = alarms[0]
+        assert first["AlarmSourceName"] == "14-TI-1234"
+        assert first["AlarmSourceDescription"] == "DHT Reactor Inlet Temp"
+        assert first["Attribute"] == "HI_ALM"
+        assert first["Priority"] == "WARNING"
+        assert first["Path"] == "14_DHT/V-14203/CTRL_MOD/14-TI-1234/HI_ALM"
+
+    def test_forward_transform_deltav(self, transformer_petrostar, sample_deltav_xml):
+        """Forward DeltaV transformation should produce valid 27-column CSV."""
+        csv_bytes, stats = transformer_petrostar.transform_forward_deltav(sample_deltav_xml)
+
+        assert isinstance(csv_bytes, bytes)
+        assert stats["total_alarms"] == 5
+        assert stats["unique_tags"] == 4  # 4 unique tags (14-TI-1234 appears twice)
+
+        # Parse output and verify structure
+        import csv
+        import io
+        decoded = csv_bytes.decode('utf-8')
+        lines = decoded.strip().split('\n')
+        assert len(lines) == 6  # 1 header + 5 data rows
+
+        reader = csv.reader(io.StringIO(decoded))
+        header = next(reader)
+        assert len(header) == 27
+
+        # Check first data row
+        row1 = next(reader)
+        assert row1[0] == "14"              # Unit (from path 14_DHT)
+        assert row1[1] == "14-TI-1234"      # Tag Name
+        assert row1[10] == "HI_ALM"         # Alarm Type
+        assert row1[13] == "W"              # Old Priority (WARNING -> W)
+        assert row1[23] == "Not Started_x"  # Rationalization Status
+        assert row1[24] == "Alarm"          # Alarm Status
+
+    def test_forward_transform_deltav_priority_suffix(self, transformer_petrostar, sample_deltav_xml):
+        """Suffix stripping should work correctly in full transform."""
+        csv_bytes, stats = transformer_petrostar.transform_forward_deltav(sample_deltav_xml)
+
+        import csv
+        import io
+        reader = csv.reader(io.StringIO(csv_bytes.decode('utf-8')))
+        header = next(reader)
+        rows = list(reader)
+
+        # Row 2 (index 1): CRITICAL_N -> C
+        assert rows[1][13] == "C"
+        # Row 5 (index 4): WARNING_FG -> W
+        assert rows[4][13] == "W"

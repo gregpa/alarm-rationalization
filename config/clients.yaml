@@ -391,3 +391,126 @@ rt_bessemer:
     line_1:
       name: "Line 1"
       description: "Production Line 1"
+
+# =============================================================================
+# PETROSTAR - VALDEZ, AK (DeltaV)
+# =============================================================================
+# New DeltaV client - requires deltav parser (SAMAlarmsReport XML format)
+# PHA-Pro format: 27 columns (custom Petrostar format)
+# Priority codes: C, W, Ad, O, Lg, N (custom - not standard U/C/H/M/L/J)
+# Added: February 2026
+# =============================================================================
+petrostar_valdez:
+  name: "Petrostar - Valdez"
+  vendor: "Emerson DeltaV"
+  dcs_name: "DeltaV"
+  pha_tool: "PHA-Pro"
+  parser: "deltav"
+  phapro_headers: "PETROSTAR"
+
+  # Unit extraction: PATH_PREFIX method (new for DeltaV)
+  # 1. Extract 2-digit prefix from Path top-level (e.g., "14_DHT" -> "14")
+  # 2. If no digits in path, fall back to tag name prefix (e.g., "18-AI-6128" -> "18")
+  # 3. If tag prefix non-numeric, search for -NN- pattern (e.g., "EM-10-1005B" -> "10")
+  # 4. Default to "X"
+  unit_method: "PATH_PREFIX"
+  unit_digits: 2
+  unit_default: "X"
+
+  default_source: "Emerson DeltaV (DCS)"
+  default_area: "10_cdu"
+
+  # DeltaV Priority -> PHA-Pro Priority Code mapping
+  # Strip _N, _FG suffixes first, then apply this map
+  deltav_priority_map:
+    CRITICAL: "C"
+    WARNING: "W"
+    ADVISORY: "Ad"
+    SOL_ALARM: "O"
+    NOL_ALARM: "O"
+    LOG: "Lg"
+
+  # DeltaV priority suffix handling
+  # _N and _FG suffixes are stripped and treated same as base priority
+  deltav_priority_suffixes:
+    - "_N"
+    - "_FG"
+
+  # Alarm Status derivation from priority code
+  deltav_alarm_status:
+    C: "Alarm"
+    W: "Alarm"
+    Ad: "Alarm"
+    O: "Alarm"
+    Lg: "Event"
+    N: ""
+
+  # FunctionalClassificationName -> Alarm Class mapping
+  deltav_alarm_class_map:
+    Safety: "Safety / PSM"
+    Environmental Protection: "Regulatory"
+    Equipment Protection: "Economic / Operational"
+    Process Efficiency: "Economic / Operational"
+
+  # No tag source rules needed - single source for all tags
+  tag_source_rules: []
+
+  # Area mapping from DeltaV Path top-level element
+  areas:
+    10_cdu:
+      name: "10 CDU"
+      description: "Crude Distillation Unit"
+    14_dht:
+      name: "14 DHT"
+      description: "Distillate Hydrotreater"
+    15_sru:
+      name: "15 SRU"
+      description: "Sulfur Recovery Unit"
+    18_h2:
+      name: "18 H2"
+      description: "Hydrogen Unit"
+    20_area:
+      name: "Unit 20"
+      description: "Unit 20 Area"
+    30_area:
+      name: "Unit 30"
+      description: "Unit 30 Area"
+    40_area:
+      name: "Unit 40"
+      description: "Unit 40 Area"
+    cdu_heater:
+      name: "CDU Heater"
+      description: "CDU Heater Section"
+    cdu_tower:
+      name: "CDU Tower"
+      description: "CDU Tower Section"
+    cdu_ovhd:
+      name: "CDU Overhead"
+      description: "CDU Overhead Section"
+    cdu_kerostripper:
+      name: "CDU Kero Stripper"
+      description: "CDU Kerosene Stripper Section"
+    cdu_lagostripper:
+      name: "CDU LAGO Stripper"
+      description: "CDU LAGO Stripper Section"
+    fire_and_gas:
+      name: "Fire & Gas"
+      description: "Fire and Gas Detection System"
+    storm_wtr_tr:
+      name: "Storm Water Treatment"
+      description: "Storm Water Treatment Area"
+    14_sis:
+      name: "14 SIS"
+      description: "Unit 14 Safety Instrumented System"
+    sis:
+      name: "SIS"
+      description: "Safety Instrumented System"
+    area_a:
+      name: "Area A"
+      description: "Area A"
+    flare:
+      name: "Flare"
+      description: "Flare System"
+    miscellaneous:
+      name: "Miscellaneous"
+      description: "Miscellaneous"

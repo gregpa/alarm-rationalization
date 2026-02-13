@@ -53,3 +53,88 @@ def transformer_hfs():
     """Create an AlarmTransformer instance for HF Sinclair client."""
     from streamlit_app import AlarmTransformer
     return AlarmTransformer("hfs_artesia", "north_console")
+
+
+@pytest.fixture
+def transformer_petrostar():
+    """Create an AlarmTransformer instance for Petrostar Valdez client."""
+    from streamlit_app import AlarmTransformer
+    return AlarmTransformer("petrostar_valdez", "10_cdu")
+
+
+@pytest.fixture
+def sample_deltav_xml():
+    """Sample DeltaV SAMAlarmsReport XML for testing."""
+    return b'''<?xml version="1.0" encoding="utf-8"?>
+<SAMAlarmsReport>
+  <Alarm>
+    <AlarmSourceName>14-TI-1234</AlarmSourceName>
+    <AlarmSourceDescription>DHT Reactor Inlet Temp</AlarmSourceDescription>
+    <Attribute>HI_ALM</Attribute>
+    <Enable>True</Enable>
+    <Priority>WARNING</Priority>
+    <LimitValue>750</LimitValue>
+    <Hysteresis>5</Hysteresis>
+    <OnDelay>0</OnDelay>
+    <OffDelay>0</OffDelay>
+    <Path>14_DHT/V-14203/CTRL_MOD/14-TI-1234/HI_ALM</Path>
+    <Type>Analog</Type>
+    <FunctionalClassificationName>Equipment Protection</FunctionalClassificationName>
+  </Alarm>
+  <Alarm>
+    <AlarmSourceName>14-TI-1234</AlarmSourceName>
+    <AlarmSourceDescription>DHT Reactor Inlet Temp</AlarmSourceDescription>
+    <Attribute>HI_HI_ALM</Attribute>
+    <Enable>True</Enable>
+    <Priority>CRITICAL_N</Priority>
+    <LimitValue>800</LimitValue>
+    <Hysteresis>5</Hysteresis>
+    <OnDelay>0</OnDelay>
+    <OffDelay>0</OffDelay>
+    <Path>14_DHT/V-14203/CTRL_MOD/14-TI-1234/HI_HI_ALM</Path>
+    <Type>Analog</Type>
+    <FunctionalClassificationName>Safety</FunctionalClassificationName>
+  </Alarm>
+  <Alarm>
+    <AlarmSourceName>18-AI-6128</AlarmSourceName>
+    <AlarmSourceDescription>H2 Purity Analyzer</AlarmSourceDescription>
+    <Attribute>LO_ALM</Attribute>
+    <Enable>True</Enable>
+    <Priority>ADVISORY</Priority>
+    <LimitValue>95.0</LimitValue>
+    <Hysteresis>1</Hysteresis>
+    <OnDelay>30</OnDelay>
+    <OffDelay>0</OffDelay>
+    <Path>18_H2/H2-UNIT/CTRL_MOD/18-AI-6128/LO_ALM</Path>
+    <Type>Analog</Type>
+    <FunctionalClassificationName>Process Efficiency</FunctionalClassificationName>
+  </Alarm>
+  <Alarm>
+    <AlarmSourceName>EM-10-1005B</AlarmSourceName>
+    <AlarmSourceDescription>CDU Feed Pump Motor</AlarmSourceDescription>
+    <Attribute>HI_ALM</Attribute>
+    <Enable>False</Enable>
+    <Priority>LOG</Priority>
+    <LimitValue>150</LimitValue>
+    <Hysteresis>2</Hysteresis>
+    <OnDelay>0</OnDelay>
+    <OffDelay>0</OffDelay>
+    <Path>FIRE_AND_GAS/FG_SYSTEM/EM-10-1005B/HI_ALM</Path>
+    <Type>Analog</Type>
+    <FunctionalClassificationName>Not classified</FunctionalClassificationName>
+  </Alarm>
+  <Alarm>
+    <AlarmSourceName>FGS-DET-001</AlarmSourceName>
+    <AlarmSourceDescription>Gas Detector Area A</AlarmSourceDescription>
+    <Attribute>HI_ALM</Attribute>
+    <Enable>True</Enable>
+    <Priority>WARNING_FG</Priority>
+    <LimitValue>25</LimitValue>
+    <Hysteresis>5</Hysteresis>
+    <OnDelay>0</OnDelay>
+    <OffDelay>0</OffDelay>
+    <Path>FIRE_AND_GAS/FG_SYSTEM/FGS-DET-001/HI_ALM</Path>
+    <Type>Analog</Type>
+    <FunctionalClassificationName>Safety</FunctionalClassificationName>
+  </Alarm>
+</SAMAlarmsReport>'''
